@@ -35,13 +35,15 @@ npm run build      # проверка типов и сборка в dist/
 npm run preview    # просмотр сборки на порту 8080
 ```
 
-Проверки (те же запускает CI):
+Проверки. CI запускает сборку (с проверкой типов), тесты, `lint` и `lint:arch`; покрытие CI не проверяет, его запускают локально:
 
 ```bash
-npm test           # тесты
-npm run test:coverage  # тесты с отчётом о покрытии и порогами
-npm run lint       # oxlint и проверка формата (npm run lint:fix исправляет)
-npm run lint:arch  # архитектурные правила ast-grep
+npm run typecheck      # проверка типов
+npm test               # тесты
+npm run test:coverage  # тесты с отчётом о покрытии и порогами (только локально)
+npm run lint           # oxlint и проверка формата (npm run lint:fix исправляет)
+npm run lint:arch      # архитектурные правила ast-grep
+npm run build          # проверка типов и сборка
 ```
 
 Доступны и цели `make`: `make setup`, `make dev`, `make test`, `make lint`, `make lint-arch`.
