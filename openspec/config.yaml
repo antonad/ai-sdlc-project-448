@@ -7,7 +7,7 @@ context: |
 
   Project: browser-only access policy simulator (React 19, Mantine, TypeScript, Vite, Vitest).
   Customer: Marina, access administrator. The app runs on training data and manages no real services.
-  Before proposing or designing a change read CLAUDE.md, docs/architecture.md and
+  Before proposing or designing a change read CLAUDE.md, docs/product.md, docs/architecture.md and
   docs/security-requirements.md. Every change must respect the four security requirements
   and the three architecture rules (single access module, explicit time `at`,
   components reach configuration only through src/app).
