@@ -46,6 +46,28 @@ describe("хранение конфигурации в браузере", () => 
     expect(loadConfig(storage)).toEqual(seedConfig);
   });
 
+  it("отдаёт учебные данные, если чтение хранилища бросает ошибку", () => {
+    const closed = {
+      ...storage,
+      getItem: () => {
+        throw new Error("доступ закрыт");
+      },
+    } as Storage;
+
+    expect(loadConfig(closed)).toEqual(seedConfig);
+  });
+
+  it("не падает, если запись в хранилище бросает ошибку", () => {
+    const full = {
+      ...storage,
+      setItem: () => {
+        throw new Error("хранилище переполнено");
+      },
+    } as Storage;
+
+    expect(() => saveConfig(full, seedConfig)).not.toThrow();
+  });
+
   it("возвращается к учебным данным, если сохранённое нарушает ссылочную целостность", () => {
     const broken = { ...seedConfig, services: [] };
     storage.setItem(STORAGE_KEY, exportConfig(broken));

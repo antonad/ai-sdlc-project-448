@@ -30,6 +30,13 @@ describe("добавление разрешения", () => {
     expect(next).toEqual(seedConfig);
   });
 
+  it("пропускает занятый идентификатор, когда число разрешений не совпадает с номером", () => {
+    const withoutFirst = removePermission(seedConfig, "p1");
+    const next = addPermission(withoutFirst, { type: "user", id: "vera" }, "ledger");
+
+    expect(next.permissions.at(-1)?.id).toBe("p6");
+  });
+
   it("не мутирует исходную конфигурацию и выдаёт уникальные идентификаторы", () => {
     const before = structuredClone(seedConfig);
     const first = addPermission(seedConfig, { type: "user", id: "vera" }, "ledger");
@@ -64,5 +71,35 @@ describe("отзыв разрешения", () => {
 
   it("не меняет конфигурацию при неизвестном идентификаторе", () => {
     expect(removePermission(seedConfig, "missing")).toEqual(seedConfig);
+  });
+
+  // Требование СБ №3: удаление p3 меняет ровно одну запись.
+  it("удаление p3 оставляет p1, p2, p4, p5, пользователей, группы и сервисы прежними", () => {
+    const before = structuredClone(seedConfig);
+    const next = removePermission(seedConfig, "p3");
+
+    expect(next.permissions).toHaveLength(before.permissions.length - 1);
+    expect(next.permissions).toEqual(
+      before.permissions.filter((permission) => permission.id !== "p3"),
+    );
+    expect(next.users).toEqual(before.users);
+    expect(next.groups).toEqual(before.groups);
+    expect(next.services).toEqual(before.services);
+    expect(seedConfig).toEqual(before);
+  });
+
+  // Требование СБ №4: у Анны два источника доступа к «Учёту».
+  it("у Анны два источника в «Учёте», после удаления p1 остаётся только группа «Бухгалтерия»", () => {
+    expect(accessOf(seedConfig, "anna", "ledger").sources).toEqual([
+      { kind: "direct", permissionId: "p1" },
+      { kind: "group", permissionId: "p2", groupId: "accounting" },
+    ]);
+
+    const result = accessOf(removePermission(seedConfig, "p1"), "anna", "ledger");
+
+    expect(result).toEqual({
+      granted: true,
+      sources: [{ kind: "group", permissionId: "p2", groupId: "accounting" }],
+    });
   });
 });

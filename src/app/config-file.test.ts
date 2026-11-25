@@ -118,6 +118,27 @@ describe("проверка файла импорта", () => {
     expect(errorsOf(result)).toEqual(["permissions[0]: тип субъекта должен быть user или group"]);
   });
 
+  it("отвергает запись списка, которая не объект", () => {
+    expect(errorsOf(parseWith((file) => (file.users[0] = "anna")))).toEqual([
+      "users[0]: запись должна быть объектом",
+    ]);
+  });
+
+  it("отвергает groupIds, который не список строк", () => {
+    expect(errorsOf(parseWith((file) => (file.users[0].groupIds = "accounting")))).toEqual([
+      "users[0]: поле groupIds должно быть списком строк",
+    ]);
+    expect(errorsOf(parseWith((file) => file.users[0].groupIds.push(7)))).toEqual([
+      "users[0]: поле groupIds должно быть списком строк",
+    ]);
+  });
+
+  it("отвергает разрешение, у которого subject не объект", () => {
+    expect(errorsOf(parseWith((file) => (file.permissions[0].subject = "anna")))).toEqual([
+      "permissions[0]: поле subject должно быть объектом",
+    ]);
+  });
+
   it("собирает все ошибки файла, а не только первую", () => {
     const result = parseWith((file) => {
       file.permissions[0].serviceId = "vault";

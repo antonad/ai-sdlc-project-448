@@ -69,6 +69,12 @@ describe("calculateAccess", () => {
     expect(result.granted).toBe(false);
   });
 
+  it("не даёт доступ несуществующему сотруднику, даже если есть разрешения группам", () => {
+    const result = calculateAccess(config, { userId: "ghost", serviceId: "mail", at });
+
+    expect(result).toEqual({ granted: false, sources: [] });
+  });
+
   it("принимает момент расчёта параметром и даёт тот же ответ в любое время", () => {
     const early = calculateAccess(config, {
       userId: "boris",

@@ -12,5 +12,12 @@ export default defineConfig({
     globals: false,
     setupFiles: ["src/test-setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: ["src/**/*.test.{ts,tsx}", "src/test-setup.ts", "src/main.tsx"],
+      reporter: ["text", "html"],
+      thresholds: { lines: 95, statements: 95, branches: 90, functions: 95 },
+    },
   },
 });

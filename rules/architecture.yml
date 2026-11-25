@@ -1,0 +1,73 @@
+# Правила из docs/architecture.md. Каждое правило описано для .ts и .tsx отдельно:
+# ast-grep выбирает файлы по языку.
+id: domain-no-clock
+language: TypeScript
+severity: error
+message: В src/domain нельзя читать часы. Момент расчёта приходит параметром `at`.
+files:
+  - src/domain/**
+ignores:
+  - "**/*.test.ts"
+rule:
+  any:
+    - pattern: Date.now()
+    - pattern: new Date()
+---
+id: components-no-local-storage
+language: Tsx
+severity: error
+message: Компонент не читает localStorage. Конфигурация приходит из useSimulator.
+files:
+  - src/components/**
+ignores:
+  - "**/*.test.tsx"
+rule:
+  any:
+    - pattern: localStorage
+    - pattern: sessionStorage
+---
+id: components-no-domain-or-storage-import
+language: Tsx
+severity: error
+message: Компонент импортирует всё из ../app, включая типы. Модули domain и storage недоступны.
+files:
+  - src/components/**
+ignores:
+  - "**/*.test.tsx"
+rule:
+  kind: string_fragment
+  regex: (^|/)(domain|storage)(/|$)
+  inside:
+    kind: string
+    inside:
+      kind: import_statement
+---
+id: no-network-ts
+language: TypeScript
+severity: error
+message: Конфигурация остаётся в браузере (docs/security-requirements.md, п. 1). Сетевые вызовы запрещены.
+files:
+  - src/**
+ignores:
+  - "**/*.test.ts"
+rule:
+  any:
+    - pattern: fetch($$$)
+    - pattern: new XMLHttpRequest($$$)
+    - pattern: new WebSocket($$$)
+    - pattern: navigator.sendBeacon($$$)
+---
+id: no-network-tsx
+language: Tsx
+severity: error
+message: Конфигурация остаётся в браузере (docs/security-requirements.md, п. 1). Сетевые вызовы запрещены.
+files:
+  - src/**
+ignores:
+  - "**/*.test.tsx"
+rule:
+  any:
+    - pattern: fetch($$$)
+    - pattern: new XMLHttpRequest($$$)
+    - pattern: new WebSocket($$$)
+    - pattern: navigator.sendBeacon($$$)
