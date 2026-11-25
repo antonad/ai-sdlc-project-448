@@ -69,10 +69,61 @@ describe("calculateAccess", () => {
     expect(result.granted).toBe(false);
   });
 
+  it("перечисляет групповые источники в порядке разрешений, а не групп сотрудника", () => {
+    const ordered: Config = {
+      ...config,
+      permissions: [
+        { id: "q1", subject: { type: "group", id: "support" }, serviceId: "ledger" },
+        { id: "q2", subject: { type: "group", id: "accounting" }, serviceId: "ledger" },
+      ],
+    };
+
+    const result = calculateAccess(ordered, { userId: "anna", serviceId: "ledger", at });
+
+    expect(result.sources).toEqual([
+      { kind: "group", permissionId: "q1", groupId: "support" },
+      { kind: "group", permissionId: "q2", groupId: "accounting" },
+    ]);
+  });
+
+  it("делает отдельный источник из каждого подходящего разрешения без склейки", () => {
+    const repeated: Config = {
+      ...config,
+      permissions: [
+        { id: "q1", subject: { type: "user", id: "vera" }, serviceId: "mail" },
+        { id: "q2", subject: { type: "user", id: "vera" }, serviceId: "mail" },
+      ],
+    };
+
+    const result = calculateAccess(repeated, { userId: "vera", serviceId: "mail", at });
+
+    expect(result.sources).toEqual([
+      { kind: "direct", permissionId: "q1" },
+      { kind: "direct", permissionId: "q2" },
+    ]);
+  });
+
+  it("для неизвестного сервиса возвращает пустой список источников", () => {
+    const result = calculateAccess(config, { userId: "anna", serviceId: "unknown", at });
+
+    expect(result).toEqual({ granted: false, sources: [] });
+  });
+
   it("не даёт доступ несуществующему сотруднику, даже если есть разрешения группам", () => {
     const result = calculateAccess(config, { userId: "ghost", serviceId: "mail", at });
 
     expect(result).toEqual({ granted: false, sources: [] });
+  });
+
+  it("не проверяет наличие сотрудника в списке: прямое разрешение с его id даёт доступ", () => {
+    const orphan: Config = {
+      ...config,
+      permissions: [{ id: "q1", subject: { type: "user", id: "ghost" }, serviceId: "mail" }],
+    };
+
+    const result = calculateAccess(orphan, { userId: "ghost", serviceId: "mail", at });
+
+    expect(result).toEqual({ granted: true, sources: [{ kind: "direct", permissionId: "q1" }] });
   });
 
   it("принимает момент расчёта параметром и даёт тот же ответ в любое время", () => {

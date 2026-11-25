@@ -45,6 +45,19 @@ describe("редактирование разрешений", () => {
     expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
   });
 
+  it("сообщает о выдаче и добавляет строку в список", async () => {
+    renderApp();
+    const events = userEvent.setup();
+    await events.selectOptions(screen.getByTestId("permission-subject-select"), "Вера Лисицына");
+    await events.selectOptions(screen.getByTestId("permission-service-select"), "Учёт");
+    await events.click(screen.getByTestId("permission-add"));
+
+    expect(screen.getByTestId("permission-message")).toHaveTextContent("Разрешение выдано");
+    expect(screen.getAllByTestId(/^permission-item-/)).toHaveLength(
+      seedConfig.permissions.length + 1,
+    );
+  });
+
   it("сообщает о повторной выдаче и не создаёт дубль", async () => {
     renderApp();
     const events = userEvent.setup();
@@ -87,7 +100,7 @@ describe("импорт конфигурации", () => {
   it("заменяет конфигурацию целиком и сохраняет её в браузере", async () => {
     renderApp();
     await upload(exportConfig(imported));
-    await screen.findByTestId("import-status");
+    expect(await screen.findByTestId("import-status")).toHaveTextContent("Конфигурация заменена");
 
     const items = screen.getAllByTestId(/^permission-item-/);
     expect(items).toHaveLength(1);
@@ -106,6 +119,34 @@ describe("импорт конфигурации", () => {
     );
     expect(screen.getAllByTestId(/^permission-item-/)).toHaveLength(seedConfig.permissions.length);
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it("при ошибке оставляет прежними разрешения и ранее сохранённую копию", async () => {
+    const saved = { ...seedConfig, permissions: seedConfig.permissions.slice(0, 4) };
+    localStorage.setItem(STORAGE_KEY, exportConfig(saved));
+    renderApp();
+    const broken = JSON.parse(exportConfig(seedConfig));
+    broken.permissions[0].subject.id = "nobody";
+    await upload(JSON.stringify(broken));
+
+    const alert = await screen.findByTestId("import-error");
+    expect(alert).toHaveTextContent("Файл не принят, конфигурация осталась прежней");
+    expect(alert).toHaveTextContent("permissions[0]: нет пользователя «nobody»");
+    expect(screen.getAllByTestId(/^permission-item-/)).toHaveLength(4);
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(exportConfig(saved));
+  });
+
+  it("показывает списком все ошибки файла", async () => {
+    renderApp();
+    const broken = JSON.parse(exportConfig(seedConfig));
+    broken.permissions[0].serviceId = "vault";
+    broken.permissions[1].subject.id = "ghosts";
+    await upload(JSON.stringify(broken));
+
+    const alert = await screen.findByTestId("import-error");
+    expect(within(alert).getAllByRole("listitem")).toHaveLength(2);
+    expect(alert).toHaveTextContent("permissions[0]: нет сервиса «vault»");
+    expect(alert).toHaveTextContent("permissions[1]: нет группы «ghosts»");
   });
 
   it("после ошибки следующий корректный файл принимается и сообщение об ошибке уходит", async () => {

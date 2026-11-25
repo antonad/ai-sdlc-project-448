@@ -24,6 +24,20 @@ describe("экран расчёта доступа", () => {
     expect(screen.getByTestId("access-result")).toHaveTextContent("Выберите сотрудника и сервис");
   });
 
+  it("просит выбрать и сервис, если выбран только сотрудник", async () => {
+    renderApp();
+    await userEvent.setup().selectOptions(screen.getByTestId("user-select"), "Анна Белова");
+
+    expect(screen.getByTestId("access-result")).toHaveTextContent("Выберите сотрудника и сервис");
+  });
+
+  it("просит выбрать и сотрудника, если выбран только сервис", async () => {
+    renderApp();
+    await userEvent.setup().selectOptions(screen.getByTestId("service-select"), "Учёт");
+
+    expect(screen.getByTestId("access-result")).toHaveTextContent("Выберите сотрудника и сервис");
+  });
+
   it("показывает доступ по прямому разрешению", async () => {
     renderApp();
     await pick("Борис Каримов", "Репозиторий");

@@ -88,6 +88,18 @@ describe("проверка файла импорта", () => {
     expect(errorsOf(result)).toContain("services[1]: идентификатор «ledger» уже занят");
   });
 
+  it("отвергает повтор идентификатора в каждом списке", () => {
+    expect(errorsOf(parseWith((file) => (file.users[1].id = "anna")))).toContain(
+      "users[1]: идентификатор «anna» уже занят",
+    );
+    expect(errorsOf(parseWith((file) => (file.groups[1].id = "accounting")))).toContain(
+      "groups[1]: идентификатор «accounting» уже занят",
+    );
+    expect(errorsOf(parseWith((file) => (file.permissions[1].id = "p1")))).toContain(
+      "permissions[1]: идентификатор «p1» уже занят",
+    );
+  });
+
   it("отвергает разрешение на несуществующего пользователя", () => {
     const result = parseWith((file) => (file.permissions[0].subject.id = "nobody"));
 
@@ -137,6 +149,15 @@ describe("проверка файла импорта", () => {
     expect(errorsOf(parseWith((file) => (file.permissions[0].subject = "anna")))).toEqual([
       "permissions[0]: поле subject должно быть объектом",
     ]);
+  });
+
+  it("ссылки проверяет только после исправления формы записей", () => {
+    const result = parseWith((file) => {
+      file.users[1].name = 5;
+      file.permissions[0].serviceId = "vault";
+    });
+
+    expect(errorsOf(result)).toEqual(["users[1]: поле name должно быть непустой строкой"]);
   });
 
   it("собирает все ошибки файла, а не только первую", () => {
