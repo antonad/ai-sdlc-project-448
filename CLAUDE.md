@@ -2,6 +2,13 @@
 
 Учебный проект Хекслета (ai-sdlc). Браузерное приложение: React 19 + Mantine + TypeScript, сборка Vite, тесты Vitest. Серверной части нет.
 
+## Как разложен код
+
+- `src/domain`: модель данных (`model.ts`) и расчёт доступа (`access.ts`), чистые функции без браузера и часов.
+- `src/app`: хранилище браузера, формат файла конфигурации, операции над разрешениями и хук `useSimulator`; реэкспортирует типы из `domain`.
+- `src/components`: экраны на React и Mantine, берут всё из `../app` и передают в него действия человека.
+- Тесты лежат рядом с кодом (`*.test.ts`, `*.test.tsx`). Подробности и правила импортов: `docs/architecture.md`.
+
 ## Команды
 
 | Что | Команда |
@@ -32,6 +39,7 @@ CI (`.github/workflows/ci.yml`) запускает `make setup` (`npm ci` и `np
 - Никаких `fetch`, `XMLHttpRequest`, `WebSocket`, `sendBeacon` в `src`.
 - Импорт файла проверяется целиком до изменения данных. Операции меняют только выбранные разрешения.
 - Новая логика сопровождается тестом рядом с кодом (`*.test.ts`, `*.test.tsx`).
+- Реализацию ведёт скилл `tdd`: зови его при новой логике и при исправлении. При первом запуске он спросит, на каких границах модуля писать тесты; на вопрос нужно ответить.
 - Не редактировать, не удалять и не переименовывать `.github/workflows/hexlet-check.yml`.
 - Новое архитектурное правило оформляется файлом в `rules/*.yml` (ast-grep) и проверяется `npm run lint:arch`.
 
@@ -56,4 +64,4 @@ CI (`.github/workflows/ci.yml`) запускает `make setup` (`npm ci` и `np
 
 ## Скилы проекта
 
-В `.claude/skills/` лежат скилы OpenSpec (`openspec-*`) и проектные: `verify` (полный прогон проверок), `review-diff` (ревью диффа по архитектуре и требованиям СБ), `add-arch-rule` (новое правило ast-grep).
+В `.claude/skills/` лежат скилы OpenSpec (`openspec-*`) и проектные: `verify` (полный прогон проверок), `review-diff` (ревью диффа по архитектуре и требованиям СБ), `add-arch-rule` (новое правило ast-grep). Из набора mattpocock/skills установлены `tdd`, `grill-me`, `grilling`, `diagnosing-bugs`, `retro`, `writing-for-agents`, `codebase-design`.
