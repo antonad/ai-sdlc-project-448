@@ -36,4 +36,13 @@
 
 ## Проверки
 
-`make lint-arch` запускает ast-grep по `src` с правилами из каталога `rules`. В стартере каталог пуст, поэтому цель проходит. Свои правила студент добавляет туда файлами `rules/*.yml`.
+`make lint-arch` запускает ast-grep по `src` с правилами из каталога `rules`. Сейчас там лежит `rules/architecture.yml`, и он закрепляет проверками три правила выше и часть требований безопасности:
+
+| Правило | Что запрещает |
+| --- | --- |
+| `domain-no-clock` | `Date.now()` и `new Date()` в `src/domain` |
+| `components-no-local-storage` | `localStorage` и `sessionStorage` в компонентах |
+| `components-no-domain-or-storage-import` | импорт `domain` и `storage` в компонентах, включая `import type` |
+| `no-network-ts`, `no-network-tsx` | `fetch`, `XMLHttpRequest`, `WebSocket`, `navigator.sendBeacon` в `src` |
+
+Тесты (`*.test.ts`, `*.test.tsx`) из проверок исключены. Каждое правило описано отдельно для `.ts` и `.tsx`, потому что ast-grep выбирает файлы по языку. Новые правила добавляются файлами `rules/*.yml` (см. скил `add-arch-rule`), а изменение правил отражается в этом разделе.
