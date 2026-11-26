@@ -1,6 +1,6 @@
 import { Container, List, NativeSelect, Paper, Stack, Text, Title } from "@mantine/core";
 import { useState } from "react";
-import { useSimulator } from "../app";
+import { useSimulator, usersInGroup } from "../app";
 import type { AccessSource, Config } from "../app";
 import { ConfigTransfer } from "./ConfigTransfer";
 import { PermissionsPanel } from "./PermissionsPanel";
@@ -16,6 +16,7 @@ const describeSource = (source: AccessSource, config: Config): string => {
 export const App = () => {
   const { config, checkAccess, grantPermission, revokePermission, exportJson, importJson } =
     useSimulator();
+  const [groupId, setGroupId] = useState("");
   const [userId, setUserId] = useState("");
   const [serviceId, setServiceId] = useState("");
 
@@ -26,13 +27,29 @@ export const App = () => {
       <Stack gap="md">
         <Title order={1}>Симулятор политик доступа</Title>
         <NativeSelect
+          label="Группа"
+          data-testid="group-select"
+          value={groupId}
+          onChange={(event) => {
+            const nextGroupId = event.currentTarget.value;
+            setGroupId(nextGroupId);
+            if (!usersInGroup(config, nextGroupId).some((user) => user.id === userId)) {
+              setUserId("");
+            }
+          }}
+          data={[
+            { value: "", label: "Все группы" },
+            ...config.groups.map((group) => ({ value: group.id, label: group.name })),
+          ]}
+        />
+        <NativeSelect
           label="Сотрудник"
           data-testid="user-select"
           value={userId}
           onChange={(event) => setUserId(event.currentTarget.value)}
           data={[
             { value: "", label: "Не выбран" },
-            ...config.users.map((user) => ({ value: user.id, label: user.name })),
+            ...usersInGroup(config, groupId).map((user) => ({ value: user.id, label: user.name })),
           ]}
         />
         <NativeSelect

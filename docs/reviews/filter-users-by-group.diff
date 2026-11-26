@@ -1,0 +1,236 @@
+﻿diff --git a/src/app/index.ts b/src/app/index.ts
+index 18854d7..1f37a81 100644
+--- a/src/app/index.ts
++++ b/src/app/index.ts
+@@ -6,6 +6,8 @@ import { exportConfig, parseConfigFile } from "./config-file";
+ import { addPermission, removePermission } from "./permissions";
+ import { loadConfig, saveConfig } from "./storage";
+ 
++export { usersInGroup } from "./users";
++
+ export type { AccessResult, AccessSource } from "../domain/access";
+ export type { Config, Group, Permission, Service, Subject, User } from "../domain/model";
+ 
+diff --git a/src/components/App.test.tsx b/src/components/App.test.tsx
+index 5f90786..6c08e73 100644
+--- a/src/components/App.test.tsx
++++ b/src/components/App.test.tsx
+@@ -1,9 +1,14 @@
+ import { MantineProvider } from "@mantine/core";
+-import { render, screen } from "@testing-library/react";
++import { render, screen, within } from "@testing-library/react";
+ import userEvent from "@testing-library/user-event";
+-import { describe, expect, it } from "vitest";
++import { afterEach, describe, expect, it } from "vitest";
++import type { Config } from "../app";
++import { exportConfig } from "../app/config-file";
++import { STORAGE_KEY } from "../app/storage";
+ import { App } from "./App";
+ 
++afterEach(() => localStorage.clear());
++
+ const renderApp = () =>
+   render(
+     <MantineProvider>
+@@ -70,3 +75,88 @@ describe("экран расчёта доступа", () => {
+     expect(screen.queryByTestId("access-sources")).not.toBeInTheDocument();
+   });
+ });
++
++const userNames = () =>
++  within(screen.getByTestId("user-select"))
++    .getAllByRole("option")
++    .map((option) => option.textContent);
++
++describe("фильтр сотрудников по группе", () => {
++  it("без выбранной группы в списке все сотрудники", () => {
++    renderApp();
++
++    expect(userNames()).toEqual(["Не выбран", "Анна Белова", "Борис Каримов", "Вера Лисицына"]);
++  });
++
++  it("после выбора группы в списке только её участники", async () => {
++    renderApp();
++    await userEvent.setup().selectOptions(screen.getByTestId("group-select"), "Бухгалтерия");
++
++    expect(userNames()).toEqual(["Не выбран", "Анна Белова"]);
++  });
++
++  it("сбрасывает выбранного сотрудника, если он не входит в новую группу", async () => {
++    renderApp();
++    const events = userEvent.setup();
++    await pick("Анна Белова", "Учёт");
++    await events.selectOptions(screen.getByTestId("group-select"), "Поддержка");
++
++    expect(screen.getByTestId("user-select")).toHaveValue("");
++    expect(screen.getByTestId("access-result")).toHaveTextContent("Выберите сотрудника и сервис");
++  });
++
++  it("оставляет сотрудника выбранным, если он входит в новую группу", async () => {
++    renderApp();
++    const events = userEvent.setup();
++    await pick("Анна Белова", "Учёт");
++    await events.selectOptions(screen.getByTestId("group-select"), "Бухгалтерия");
++
++    expect(screen.getByTestId("user-select")).toHaveValue("anna");
++    expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
++  });
++
++  it("при возврате к «Все группы» полный список, выбранный сотрудник остаётся", async () => {
++    renderApp();
++    const events = userEvent.setup();
++    await events.selectOptions(screen.getByTestId("group-select"), "Бухгалтерия");
++    await events.selectOptions(screen.getByTestId("user-select"), "Анна Белова");
++    await events.selectOptions(screen.getByTestId("group-select"), "Все группы");
++
++    expect(userNames()).toHaveLength(4);
++    expect(screen.getByTestId("user-select")).toHaveValue("anna");
++  });
++
++  it("результат расчёта не зависит от выбранной группы", async () => {
++    renderApp();
++    const events = userEvent.setup();
++    await pick("Анна Белова", "Учёт");
++    const without = screen.getByTestId("access-sources").textContent;
++    await events.selectOptions(screen.getByTestId("group-select"), "Бухгалтерия");
++
++    expect(screen.getByTestId("access-sources").textContent).toBe(without);
++  });
++
++  it("сотрудник без группы и сотрудник в двух группах ведут себя по спеке", async () => {
++    const saved: Config = {
++      users: [
++        { id: "u1", name: "Двойной", groupIds: ["g1", "g2"] },
++        { id: "u2", name: "Одинокий", groupIds: [] },
++      ],
++      groups: [
++        { id: "g1", name: "Первая" },
++        { id: "g2", name: "Вторая" },
++      ],
++      services: [],
++      permissions: [],
++    };
++    localStorage.setItem(STORAGE_KEY, exportConfig(saved));
++    renderApp();
++    const events = userEvent.setup();
++
++    expect(userNames()).toEqual(["Не выбран", "Двойной", "Одинокий"]);
++    await events.selectOptions(screen.getByTestId("group-select"), "Первая");
++    expect(userNames()).toEqual(["Не выбран", "Двойной"]);
++    await events.selectOptions(screen.getByTestId("group-select"), "Вторая");
++    expect(userNames()).toEqual(["Не выбран", "Двойной"]);
++  });
++});
+diff --git a/src/components/App.tsx b/src/components/App.tsx
+index dbc01f9..4fed231 100644
+--- a/src/components/App.tsx
++++ b/src/components/App.tsx
+@@ -1,6 +1,6 @@
+ import { Container, List, NativeSelect, Paper, Stack, Text, Title } from "@mantine/core";
+ import { useState } from "react";
+-import { useSimulator } from "../app";
++import { useSimulator, usersInGroup } from "../app";
+ import type { AccessSource, Config } from "../app";
+ import { ConfigTransfer } from "./ConfigTransfer";
+ import { PermissionsPanel } from "./PermissionsPanel";
+@@ -16,6 +16,7 @@ const describeSource = (source: AccessSource, config: Config): string => {
+ export const App = () => {
+   const { config, checkAccess, grantPermission, revokePermission, exportJson, importJson } =
+     useSimulator();
++  const [groupId, setGroupId] = useState("");
+   const [userId, setUserId] = useState("");
+   const [serviceId, setServiceId] = useState("");
+ 
+@@ -25,6 +26,22 @@ export const App = () => {
+     <Container size="sm" py="xl">
+       <Stack gap="md">
+         <Title order={1}>Симулятор политик доступа</Title>
++        <NativeSelect
++          label="Группа"
++          data-testid="group-select"
++          value={groupId}
++          onChange={(event) => {
++            const nextGroupId = event.currentTarget.value;
++            setGroupId(nextGroupId);
++            if (!usersInGroup(config, nextGroupId).some((user) => user.id === userId)) {
++              setUserId("");
++            }
++          }}
++          data={[
++            { value: "", label: "Все группы" },
++            ...config.groups.map((group) => ({ value: group.id, label: group.name })),
++          ]}
++        />
+         <NativeSelect
+           label="Сотрудник"
+           data-testid="user-select"
+@@ -32,7 +49,7 @@ export const App = () => {
+           onChange={(event) => setUserId(event.currentTarget.value)}
+           data={[
+             { value: "", label: "Не выбран" },
+-            ...config.users.map((user) => ({ value: user.id, label: user.name })),
++            ...usersInGroup(config, groupId).map((user) => ({ value: user.id, label: user.name })),
+           ]}
+         />
+         <NativeSelect
+diff --git a/src/app/users.ts b/src/app/users.ts
+new file mode 100644
+index 0000000..bee119c
+--- /dev/null
++++ b/src/app/users.ts
+@@ -0,0 +1,5 @@
++import type { Config, User } from "../domain/model";
++
++/** Сотрудники для списка выбора. Пустой `groupId` означает «все группы». Порядок как в конфигурации. */
++export const usersInGroup = (config: Config, groupId: string): User[] =>
++  groupId === "" ? config.users : config.users.filter((user) => user.groupIds.includes(groupId));
+diff --git a/src/app/users.test.ts b/src/app/users.test.ts
+new file mode 100644
+index 0000000..af9ed12
+--- /dev/null
++++ b/src/app/users.test.ts
+@@ -0,0 +1,44 @@
++import { describe, expect, it } from "vitest";
++import type { Config } from "../domain/model";
++import { usersInGroup } from "./users";
++
++const config: Config = {
++  users: [
++    { id: "anna", name: "Анна", groupIds: ["accounting", "support"] },
++    { id: "boris", name: "Борис", groupIds: ["support"] },
++    { id: "vera", name: "Вера", groupIds: [] },
++    { id: "gleb", name: "Глеб", groupIds: ["accounting"] },
++  ],
++  groups: [
++    { id: "accounting", name: "Бухгалтерия" },
++    { id: "support", name: "Поддержка" },
++  ],
++  services: [],
++  permissions: [],
++};
++
++const ids = (groupId: string) => usersInGroup(config, groupId).map((user) => user.id);
++
++describe("usersInGroup", () => {
++  it("при пустой группе возвращает всех сотрудников", () => {
++    expect(ids("")).toEqual(["anna", "boris", "vera", "gleb"]);
++  });
++
++  it("при выбранной группе возвращает только её участников в порядке конфигурации", () => {
++    expect(ids("accounting")).toEqual(["anna", "gleb"]);
++  });
++
++  it("сотрудник из нескольких групп есть в списке каждой", () => {
++    expect(ids("support")).toEqual(["anna", "boris"]);
++  });
++
++  it("сотрудник без группы есть только при пустой группе", () => {
++    expect(ids("")).toContain("vera");
++    expect(ids("accounting")).not.toContain("vera");
++    expect(ids("support")).not.toContain("vera");
++  });
++
++  it("неизвестная группа даёт пустой список", () => {
++    expect(ids("ghosts")).toEqual([]);
++  });
++});

@@ -6,6 +6,8 @@ import { exportConfig, parseConfigFile } from "./config-file";
 import { addPermission, removePermission } from "./permissions";
 import { loadConfig, saveConfig } from "./storage";
 
+export { usersInGroup } from "./users";
+
 export type { AccessResult, AccessSource } from "../domain/access";
 export type { Config, Group, Permission, Service, Subject, User } from "../domain/model";
 
