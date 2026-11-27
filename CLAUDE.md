@@ -47,6 +47,7 @@ CI (`.github/workflows/ci.yml`) запускает `make setup` (`npm ci` и `np
 
 - Формат и линт: oxfmt и oxlint, конфиг по умолчанию. Окончания строк LF (`.gitattributes`).
 - Тексты интерфейса, сообщения об ошибках и комментарии на русском.
+- Файлы правит Edit или Write. `Get-Content`/`Set-Content` портят кириллицу и добавляют BOM; `npm run lint` это ловит (`scripts/check-encoding.mjs`).
 - Работа по спецификации: сначала тест или критерий приёмки, затем код, затем проверки выше.
 
 ## Процесс изменений (OpenSpec)

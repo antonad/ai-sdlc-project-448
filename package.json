@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "lint": "oxlint && oxfmt --ignore-path=.oxfmtignore --check",
+    "lint": "oxlint && oxfmt --ignore-path=.oxfmtignore --check && node scripts/check-encoding.mjs",
     "lint:arch": "ast-grep scan src",
     "lint:fix": "oxfmt --ignore-path=.oxfmtignore && oxlint --fix"
   },
