@@ -84,7 +84,19 @@ describe("explainAccess", () => {
     expect(explain("2026-03-22T00:00:00Z", afterExpiry)[0]).toMatchObject({ status: "expired" });
   });
 
-  it("считает постоянное разрешение действующим на любой момент", () => {
+  it("при отзыве раньше начала до начала даёт pending", () => {
+    const early: Config = {
+      ...config,
+      permissions: config.permissions.map((permission) =>
+        permission.id === "d1" ? { ...permission, revokedAt: "2026-03-12T00:00Z" } : permission,
+      ),
+    };
+    // Отзыв 12 марта позже начала 10 марта; до начала приоритет у pending.
+    expect(explain("2026-03-05T00:00:00Z", early)[0]).toMatchObject({ status: "pending" });
+    expect(explain("2026-03-12T00:00:00Z", early)[0]).toMatchObject({ status: "revoked" });
+  });
+
+  it("постоянное разрешение группы действует, когда временное прямое уже истекло", () => {
     const items = explain("2040-01-01T00:00:00Z");
 
     expect(items.find((item) => item.permissionId === "d1")).toMatchObject({ status: "expired" });

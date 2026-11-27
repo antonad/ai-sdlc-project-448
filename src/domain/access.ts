@@ -53,10 +53,13 @@ const inactivity = (
 export type ExplainedStatus = "active" | "pending" | "expired" | "revoked";
 
 /** Разрешение пары с источником и статусом; `boundary` задан у неактивных. */
-export type ExplainedPermission = AccessSource & {
-  status: ExplainedStatus;
-  boundary?: string;
-};
+export type ExplainedPermission = AccessSource &
+  ({ status: "active"; boundary?: undefined } | { status: InactiveStatus; boundary: string });
+
+type InactiveStatus = Exclude<ExplainedStatus, "active">;
+
+const inactiveStatus = (reason: InactiveReason): InactiveStatus =>
+  reason === "not-started" ? "pending" : reason;
 
 /**
  * Все разрешения пары (сотрудник, сервис) со статусом на момент `at`: прямые идут первыми,
@@ -92,22 +95,25 @@ export const explainAccess = (config: Config, query: AccessQuery): ExplainedPerm
   return candidates.map(({ permission, source }): ExplainedPermission => {
     const problem = inactivity(permission, key);
     if (!problem) return { ...source, status: "active" };
-    const status = problem.reason === "not-started" ? "pending" : problem.reason;
-    return { ...source, status, boundary: problem.boundary };
+    return { ...source, status: inactiveStatus(problem.reason), boundary: problem.boundary };
   });
 };
 
 export const calculateAccess = (config: Config, query: AccessQuery): AccessResult => {
   const sources: AccessSource[] = [];
   const inactive: InactivePermission[] = [];
-  for (const { status, boundary, ...source } of explainAccess(config, query)) {
-    if (status === "active" || boundary === undefined) {
+  for (const item of explainAccess(config, query)) {
+    const source: AccessSource =
+      item.kind === "direct"
+        ? { kind: "direct", permissionId: item.permissionId }
+        : { kind: "group", permissionId: item.permissionId, groupId: item.groupId };
+    if (item.status === "active") {
       sources.push(source);
     } else {
       inactive.push({
         ...source,
-        reason: status === "pending" ? "not-started" : status,
-        boundary,
+        reason: item.status === "pending" ? "not-started" : item.status,
+        boundary: item.boundary,
       });
     }
   }

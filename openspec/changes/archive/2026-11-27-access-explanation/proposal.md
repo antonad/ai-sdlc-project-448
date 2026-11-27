@@ -30,5 +30,5 @@
 - `src/domain/access.ts`: новая чистая функция `explainAccess`, `calculateAccess` использует её; публичный результат `calculateAccess` прежний.
 - `src/app/index.ts`: реэкспорт типов и функции, метод хука `explainAccess(userId, serviceId, moment)`.
 - `src/components/App.tsx`: блок «Объяснение доступа».
-- Тесты рядом с кодом: `src/domain/access.test.ts`, `src/app/*.test.ts`, `src/components/App.test.tsx`.
+- Тесты рядом с кодом: `src/domain/explain-access.test.ts`, `src/app/simulator.test.tsx`, `src/components/AccessExplanation.test.tsx`.
 - Документация: `docs/product.md` (сценарий объяснения).

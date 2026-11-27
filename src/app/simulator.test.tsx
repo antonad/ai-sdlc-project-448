@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { useSimulator } from "./index";
-import { loadConfig } from "./storage";
+import { loadConfig, STORAGE_KEY } from "./storage";
 
 const vera = { type: "user", id: "vera" } as const;
 
@@ -100,7 +100,7 @@ describe("хук useSimulator: объяснение доступа", () => {
     });
     const id = result.current.config.permissions.at(-1)!.id;
     const before = result.current.config;
-    const stored = window.localStorage.getItem(window.localStorage.key(0) ?? "");
+    const stored = window.localStorage.getItem(STORAGE_KEY);
 
     // Локальное 13:59 это 08:59Z, за минуту до начала (UTC+5).
     const early = result.current.explainAccess("vera", "ledger", "2026-12-01T13:59");
@@ -109,6 +109,6 @@ describe("хук useSimulator: объяснение доступа", () => {
     expect(early.find((item) => item.permissionId === id)?.status).toBe("pending");
     expect(inside.find((item) => item.permissionId === id)?.status).toBe("active");
     expect(result.current.config).toBe(before);
-    expect(window.localStorage.getItem(window.localStorage.key(0) ?? "")).toBe(stored);
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBe(stored);
   });
 });
