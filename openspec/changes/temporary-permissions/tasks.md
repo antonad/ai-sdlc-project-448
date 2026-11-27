@@ -31,7 +31,7 @@
 ## 7. Итоговые проверки
 
 - [x] 7.1 Пройти `npm run typecheck`, `npm test`, `npm run lint`, `npm run lint:arch`, `npm run build`, затем `npm run test:coverage` (пороги из `vite.config.ts` держатся) и `npx @fission-ai/openspec validate temporary-permissions`. Результат читает человек (скил `verify`).
-- [ ] 7.2 Независимое ревью отдельной сессией (скил `review-diff`) по дельтам, `docs/architecture.md` и `docs/security-requirements.md`: нет сетевых вызовов, импорт проверяется целиком, независимые источники сохраняются, `domain` не читает часы, компоненты не импортируют `src/domain`.
+- [x] 7.2 Независимое ревью отдельной сессией (скил `review-diff`) по дельтам, `docs/architecture.md` и `docs/security-requirements.md`: нет сетевых вызовов, импорт проверяется целиком, независимые источники сохраняются, `domain` не читает часы, компоненты не импортируют `src/domain`.
 
 ## Workflow follow-up
 
