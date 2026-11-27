@@ -14,10 +14,13 @@ const describeSource = (source: AccessSource, config: Config): string => {
 };
 
 const describeInactive = (item: InactivePermission, config: Config): string => {
+  const moment = formatMoment(item.boundary);
   const reason =
     item.reason === "expired"
-      ? `закончилось ${formatMoment(item.boundary)}`
-      : `ещё не началось, с ${formatMoment(item.boundary)}`;
+      ? `закончилось ${moment}`
+      : item.reason === "revoked"
+        ? `отозвано ${moment}`
+        : `ещё не началось, с ${moment}`;
   return `${describeSource(item, config)}: ${reason}`;
 };
 
@@ -114,6 +117,7 @@ export const App = () => {
           onGrant={grantPermission}
           onRevoke={revokePermission}
           onRevokeFrom={revokePermissionFrom}
+          evaluationMoment={atMoment}
         />
         <ConfigTransfer exportJson={exportJson} onImport={importJson} />
       </Stack>

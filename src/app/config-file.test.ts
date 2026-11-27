@@ -431,3 +431,134 @@ describe("файлы версий 1 и 2", () => {
     });
   });
 });
+
+describe("отзыв разрешения в файле версии 3", () => {
+  const withRevoke: Config = {
+    ...seedConfig,
+    permissions: [
+      { ...seedConfig.permissions[0], revokedAt: "2026-12-10T12:00" },
+      {
+        ...seedConfig.permissions[1],
+        startsAt: "2026-12-01T09:00",
+        expiresAt: "2026-12-14T18:30",
+        revokedAt: "2026-12-10T12:00",
+      },
+      ...seedConfig.permissions.slice(2),
+    ],
+  };
+
+  it("возвращает отзыв после круга экспорта и импорта, версия остаётся 3", () => {
+    const text = exportConfig(withRevoke);
+    const result = parseConfigFile(text);
+
+    expect(JSON.parse(text).version).toBe(3);
+    expect(CONFIG_VERSION).toBe(3);
+    expect(result).toEqual({ ok: true, config: withRevoke });
+    expect(JSON.parse(text).permissions[2]).not.toHaveProperty("revokedAt");
+  });
+
+  it("читает прежний файл версии 3 без revokedAt", () => {
+    const result = parseWith((file) => {
+      file.permissions[0].startsAt = "2026-12-01T09:00";
+    });
+
+    expect(result.ok).toBe(true);
+    const permissions = result.ok ? result.config.permissions : [];
+    expect(permissions[0]).not.toHaveProperty("revokedAt");
+  });
+
+  it("отвергает несуществующий момент отзыва с указанием места", () => {
+    const day = errorsOf(parseWith((file) => (file.permissions[1].revokedAt = "2026-02-30T10:00")));
+    const wrongFormat = errorsOf(
+      parseWith((file) => (file.permissions[0].revokedAt = "10.12.2026 12:00")),
+    );
+    const notString = errorsOf(parseWith((file) => (file.permissions[2].revokedAt = null)));
+
+    expect(day).toEqual([
+      "permissions[1].revokedAt: нужен реальный момент в формате ГГГГ-ММ-ДДTчч:мм",
+    ]);
+    expect(wrongFormat).toEqual([
+      "permissions[0].revokedAt: нужен реальный момент в формате ГГГГ-ММ-ДДTчч:мм",
+    ]);
+    expect(notString[0]).toMatch(/^permissions\[2\]\.revokedAt: /);
+  });
+
+  it("отвергает отзыв не позже начала, равный и ранний", () => {
+    const equal = errorsOf(
+      parseWith((file) => {
+        file.permissions[0].startsAt = "2026-12-10T12:00";
+        file.permissions[0].revokedAt = "2026-12-10T12:00";
+      }),
+    );
+    const earlier = errorsOf(
+      parseWith((file) => {
+        file.permissions[0].startsAt = "2026-12-10T12:00";
+        file.permissions[0].revokedAt = "2026-12-10T11:59";
+      }),
+    );
+
+    expect(equal).toEqual(["permissions[0]: отзыв должен быть позже начала"]);
+    expect(earlier).toEqual(["permissions[0]: отзыв должен быть позже начала"]);
+  });
+
+  it("отвергает отзыв не раньше окончания, равный и поздний", () => {
+    const equal = errorsOf(
+      parseWith((file) => {
+        file.permissions[1].expiresAt = "2026-12-14T18:00";
+        file.permissions[1].revokedAt = "2026-12-14T18:00";
+      }),
+    );
+    const later = errorsOf(
+      parseWith((file) => {
+        file.permissions[1].expiresAt = "2026-12-14T18:00";
+        file.permissions[1].revokedAt = "2026-12-14T18:01";
+      }),
+    );
+
+    expect(equal).toEqual(["permissions[1]: отзыв должен быть раньше окончания"]);
+    expect(later).toEqual(["permissions[1]: отзыв должен быть раньше окончания"]);
+  });
+
+  it("принимает отзыв на минуту позже начала и на минуту раньше окончания", () => {
+    const result = parseWith((file) => {
+      file.permissions[0].startsAt = "2026-12-10T12:00";
+      file.permissions[0].expiresAt = "2026-12-10T12:02";
+      file.permissions[0].revokedAt = "2026-12-10T12:01";
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("при неверном моменте отзыва не добавляет ошибку границ", () => {
+    const errors = errorsOf(
+      parseWith((file) => {
+        file.permissions[0].startsAt = "2026-12-10T12:00";
+        file.permissions[0].revokedAt = "2026-13-40T10:00";
+      }),
+    );
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/^permissions\[0\]\.revokedAt: /);
+  });
+
+  it("версия 2 игнорирует revokedAt, даже неверный", () => {
+    const text = JSON.stringify({
+      version: 2,
+      ...seedConfig,
+      permissions: seedConfig.permissions.map((permission, index) =>
+        index === 0 ? { ...permission, revokedAt: "ерунда" } : permission,
+      ),
+    });
+
+    expect(parseConfigFile(text)).toEqual({ ok: true, config: seedConfig });
+  });
+
+  it("версия 1 игнорирует revokedAt", () => {
+    const result = parseWith((file) => {
+      file.version = 1;
+      file.permissions[0].revokedAt = "2026-12-10T12:00";
+    });
+
+    expect(result).toEqual({ ok: true, config: seedConfig });
+  });
+});

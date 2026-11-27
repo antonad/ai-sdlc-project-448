@@ -318,16 +318,6 @@ describe("разрешения со сроком", () => {
 });
 
 describe("отзыв разрешения с момента", () => {
-  const openRevoke = async (id: string) => {
-    await userEvent.setup().click(screen.getByTestId(`permission-revoke-open-${id}`));
-  };
-  const revoke = async (id: string, moment: string) => {
-    await openRevoke(id);
-    fireEvent.change(screen.getByTestId(`permission-revoke-date-${id}`), {
-      target: { value: moment },
-    });
-    await userEvent.setup().click(screen.getByTestId(`permission-revoke-confirm-${id}`));
-  };
   const grantTerm = async (starts: string, ends: string) => {
     const events = userEvent.setup();
     await events.selectOptions(screen.getByTestId("permission-subject-select"), "Вера Лисицына");
@@ -336,51 +326,80 @@ describe("отзыв разрешения с момента", () => {
     fireEvent.change(screen.getByTestId("permission-expires-at"), { target: { value: ends } });
     await events.click(screen.getByTestId("permission-add"));
   };
+  const revoke = async (id: string, moment: string) => {
+    fireEvent.change(screen.getByTestId("permission-revoked-at"), { target: { value: moment } });
+    await userEvent.setup().click(screen.getByTestId(`permission-revoke-${id}`));
+  };
   const message = () => screen.getByTestId("permission-message");
 
-  it("поле отзыва появляется по кнопке и по умолчанию содержит текущий момент", async () => {
+  it("кнопка отзыва есть у разрешения с интервалом и нет у постоянного", async () => {
     renderApp();
-    expect(screen.queryByTestId("permission-revoke-date-p3")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("permission-revoke-p3")).not.toBeInTheDocument();
 
-    await openRevoke("p3");
+    await grantTerm("2026-11-20T09:00", "2026-12-03T18:00");
 
-    const field = screen.getByTestId("permission-revoke-date-p3") as HTMLInputElement;
-    expect(field.value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+    expect(screen.getByTestId("permission-revoke-p6")).toBeInTheDocument();
+    expect(screen.queryByTestId("permission-revoke-p1")).not.toBeInTheDocument();
   });
 
-  it("отзывает бессрочное разрешение: сообщает момент и показывает «до …»", async () => {
+  it("поле момента отзыва одно и по умолчанию пусто", () => {
     renderApp();
-    await revoke("p3", "2026-11-27T12:00");
 
-    expect(message()).toHaveTextContent("Разрешение отозвано с 27.11.2026 12:00");
-    expect(screen.getByTestId("permission-interval-p3")).toHaveTextContent("до 27.11.2026 12:00");
-    expect(screen.queryByTestId("permission-revoke-date-p3")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("permission-revoked-at")).toHaveLength(1);
+    expect(screen.getByTestId("permission-revoked-at")).toHaveValue("");
   });
 
-  it("отзыв сокращает срок, остальные строки не меняются", async () => {
+  it("отзывает разрешение: строка остаётся, срок прежний, кнопка исчезает", async () => {
     renderApp();
     await grantTerm("2026-11-20T09:00", "2026-12-03T18:00");
     await revoke("p6", "2026-11-27T12:00");
 
-    expect(screen.getByTestId("permission-interval-p6")).toHaveTextContent(
-      "с 20.11.2026 09:00 до 27.11.2026 12:00",
+    expect(message()).toHaveTextContent("Разрешение отозвано");
+    expect(screen.getByTestId("permission-item-p6")).toBeInTheDocument();
+    expect(screen.getByTestId("permission-revoked-p6")).toHaveTextContent(
+      ", отозвано с 27.11.2026 12:00",
     );
+    expect(screen.getByTestId("permission-interval-p6")).toHaveTextContent(
+      "с 20.11.2026 09:00 до 03.12.2026 18:00",
+    );
+    expect(screen.queryByTestId("permission-revoke-p6")).not.toBeInTheDocument();
     expect(screen.getByTestId("permission-interval-p1")).toHaveTextContent("бессрочно");
     expect(screen.getAllByTestId(/^permission-item-/)).toHaveLength(
       seedConfig.permissions.length + 1,
     );
   });
 
+  it("пустое поле берёт момент проверки с экрана", async () => {
+    renderApp();
+    await grantTerm("2026-11-20T09:00", "2026-12-03T18:00");
+    fireEvent.change(screen.getByTestId("evaluation-time"), {
+      target: { value: "2026-11-28T08:30" },
+    });
+    await userEvent.setup().click(screen.getByTestId("permission-revoke-p6"));
+
+    expect(screen.getByTestId("permission-revoked-p6")).toHaveTextContent(
+      ", отозвано с 28.11.2026 08:30",
+    );
+  });
+
   it("сохраняет отзыв в браузере", async () => {
     const first = renderApp();
-    await revoke("p3", "2026-11-27T12:00");
+    await grantTerm("2026-11-20T09:00", "2026-12-03T18:00");
+    await revoke("p6", "2026-11-27T12:00");
     first.unmount();
     renderApp();
 
-    expect(screen.getByTestId("permission-interval-p3")).toHaveTextContent("до 27.11.2026 12:00");
+    expect(screen.getByTestId("permission-revoked-p6")).toHaveTextContent(
+      ", отозвано с 27.11.2026 12:00",
+    );
+    expect(screen.queryByTestId("permission-revoke-p6")).not.toBeInTheDocument();
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
+    expect(saved.permissions.find((item: { id: string }) => item.id === "p6")).toMatchObject({
+      revokedAt: "2026-11-27T12:00",
+    });
   });
 
-  it("отказывает, если момент не позже начала: срок не меняется, поле остаётся открытым", async () => {
+  it("отказывает, если момент не позже начала: срок не меняется", async () => {
     renderApp();
     await grantTerm("2026-11-20T09:00", "2026-12-03T18:00");
     await revoke("p6", "2026-11-20T09:00");
@@ -389,7 +408,8 @@ describe("отзыв разрешения с момента", () => {
     expect(screen.getByTestId("permission-interval-p6")).toHaveTextContent(
       "с 20.11.2026 09:00 до 03.12.2026 18:00",
     );
-    expect(screen.getByTestId("permission-revoke-date-p6")).toBeInTheDocument();
+    expect(screen.queryByTestId("permission-revoked-p6")).not.toBeInTheDocument();
+    expect(screen.getByTestId("permission-revoke-p6")).toBeInTheDocument();
   });
 
   it("отказывает, если разрешение и так закончится раньше, в том числе ровно в момент отзыва", async () => {
@@ -398,19 +418,23 @@ describe("отзыв разрешения с момента", () => {
     await revoke("p6", "2026-12-03T18:00");
 
     expect(message()).toHaveTextContent("Разрешение и так закончится раньше");
-    expect(screen.getByTestId("permission-interval-p6")).toHaveTextContent(
-      "с 20.11.2026 09:00 до 03.12.2026 18:00",
-    );
+    expect(screen.queryByTestId("permission-revoked-p6")).not.toBeInTheDocument();
   });
 
-  it("отказывает при пустом моменте и не меняет разрешение", async () => {
+  it("удаляет отозванное разрешение кнопкой «Удалить»", async () => {
     renderApp();
-    await revoke("p3", "");
+    await grantTerm("2026-11-20T09:00", "2026-12-03T18:00");
+    await revoke("p6", "2026-11-27T12:00");
+    await userEvent.setup().click(screen.getByTestId("permission-remove-p6"));
 
-    expect(message()).toHaveTextContent(
-      "Момент отзыва должен быть реальным моментом в формате ГГГГ-ММ-ДДTчч:мм",
-    );
-    expect(screen.getByTestId("permission-interval-p3")).toHaveTextContent("бессрочно");
-    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(screen.queryByTestId("permission-item-p6")).not.toBeInTheDocument();
+  });
+
+  it("импорт файла прежнего формата без revokedAt: кнопок отзыва нет", async () => {
+    renderApp();
+    await upload(JSON.stringify({ version: 2, ...seedConfig }));
+
+    expect(await screen.findByTestId("import-status")).toHaveTextContent("Конфигурация заменена");
+    expect(screen.queryAllByTestId(/^permission-revoke-/)).toHaveLength(0);
   });
 });

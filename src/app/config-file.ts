@@ -8,13 +8,15 @@ import { intervalError, isValidDate, isValidMoment, startOfDay, startOfNextDay }
 //     "groups": [{ "id", "name" }],
 //     "services": [{ "id", "name" }],
 //     "permissions": [{ "id", "subject": { "type": "user" | "group", "id" }, "serviceId",
-//                       "startsAt"?: "ГГГГ-ММ-ДДTчч:мм", "expiresAt"?: "ГГГГ-ММ-ДДTчч:мм" }]
+//                       "startsAt"?: "ГГГГ-ММ-ДДTчч:мм", "expiresAt"?: "ГГГГ-ММ-ДДTчч:мм",
+//                       "revokedAt"?: "ГГГГ-ММ-ДДTчч:мм" }]
 //   }
 // Идентификаторы внутри списка уникальны. Разрешения и участие в группах ссылаются на
 // существующие записи, иначе файл отвергается целиком. Неизвестные поля игнорируются: новые
 // поля добавляются как необязательные, версия растёт только при несовместимой правке.
 // Версия 3: срок разрешения — моменты `startsAt` (включительно) и `expiresAt` (исключительно),
-// любая граница может отсутствовать. Версия 2 хранила дни `startsOn` и `endsOn` (обе границы
+// любая граница может отсутствовать; необязательный `revokedAt` — момент отзыва, строго внутри
+// интервала, версия не растёт. Версия 2 хранила дни `startsOn` и `endsOn` (обе границы
 // включительные): при чтении `startsOn` становится началом того же дня, а `endsOn` — началом
 // следующего, поэтому доступ не меняется. Файлы версии 1 принимаются: все их разрешения
 // постоянные.
@@ -119,13 +121,15 @@ const readInterval = (
   version: number,
   where: string,
   errors: string[],
-): { startsAt?: string; expiresAt?: string } => {
+): { startsAt?: string; expiresAt?: string; revokedAt?: string } => {
   let startsAt: string | undefined;
   let expiresAt: string | undefined;
+  let revokedAt: string | undefined;
   if (version >= 3) {
     const hint = "момент в формате ГГГГ-ММ-ДДTчч:мм";
     startsAt = readOptionalText(item, "startsAt", isValidMoment, hint, where, errors);
     expiresAt = readOptionalText(item, "expiresAt", isValidMoment, hint, where, errors);
+    revokedAt = readOptionalText(item, "revokedAt", isValidMoment, hint, where, errors);
   } else {
     const hint = "день в формате ГГГГ-ММ-ДД";
     const startsOn = readOptionalText(item, "startsOn", isValidDate, hint, where, errors);
@@ -140,9 +144,19 @@ const readInterval = (
       errors.push(`${where}: ${pairError.charAt(0).toLowerCase()}${pairError.slice(1)}`);
     }
   }
+  // Отзыв обрывает интервал: он строго позже начала и строго раньше окончания.
+  if (revokedAt !== undefined) {
+    if (startsAt !== undefined && revokedAt <= startsAt) {
+      errors.push(`${where}: отзыв должен быть позже начала`);
+    }
+    if (expiresAt !== undefined && revokedAt >= expiresAt) {
+      errors.push(`${where}: отзыв должен быть раньше окончания`);
+    }
+  }
   return {
     ...(startsAt === undefined ? {} : { startsAt }),
     ...(expiresAt === undefined ? {} : { expiresAt }),
+    ...(revokedAt === undefined ? {} : { revokedAt }),
   };
 };
 

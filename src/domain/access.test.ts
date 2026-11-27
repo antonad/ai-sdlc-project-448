@@ -371,3 +371,156 @@ describe("calculateAccess: срок действия разрешения", () =
     });
   });
 });
+
+describe("calculateAccess: отзыв разрешения", () => {
+  const revocable = (terms: { startsAt?: string; expiresAt?: string; revokedAt?: string }) =>
+    withPermissions([
+      { id: "r1", subject: { type: "user", id: "vera" }, serviceId: "mail", ...terms },
+    ]);
+
+  it("даёт доступ за минуту до отзыва", () => {
+    const result = check(
+      revocable({ revokedAt: "2026-12-10T12:00" }),
+      moment(2026, 12, 10, 11, 59),
+    );
+
+    expect(result).toEqual({
+      granted: true,
+      sources: [{ kind: "direct", permissionId: "r1" }],
+      inactive: [],
+    });
+  });
+
+  it("не даёт доступ ровно с момента отзыва и называет причину с границей", () => {
+    const result = check(revocable({ revokedAt: "2026-12-10T12:00" }), moment(2026, 12, 10, 12, 0));
+
+    expect(result.granted).toBe(false);
+    expect(result.sources).toEqual([]);
+    expect(result.inactive).toEqual([
+      { kind: "direct", permissionId: "r1", reason: "revoked", boundary: "2026-12-10T12:00" },
+    ]);
+  });
+
+  it("не даёт доступ и после отзыва", () => {
+    expect(check(revocable({ revokedAt: "2026-12-10T12:00" }), moment(2030, 1, 1)).granted).toBe(
+      false,
+    );
+  });
+
+  it("отзыв раньше окончания: после отзыва причина revoked", () => {
+    const cfg = revocable({ revokedAt: "2026-12-10T12:00", expiresAt: "2026-12-14T18:00" });
+
+    expect(check(cfg, moment(2026, 12, 10, 12, 0)).inactive).toEqual([
+      { kind: "direct", permissionId: "r1", reason: "revoked", boundary: "2026-12-10T12:00" },
+    ]);
+    expect(check(cfg, moment(2026, 12, 14, 18, 0)).inactive).toEqual([
+      { kind: "direct", permissionId: "r1", reason: "revoked", boundary: "2026-12-10T12:00" },
+    ]);
+  });
+
+  it("окончание раньше отзыва: после окончания причина expired", () => {
+    const cfg = revocable({ revokedAt: "2026-12-20T12:00", expiresAt: "2026-12-14T18:00" });
+
+    expect(check(cfg, moment(2026, 12, 14, 18, 0)).inactive).toEqual([
+      { kind: "direct", permissionId: "r1", reason: "expired", boundary: "2026-12-14T18:00" },
+    ]);
+    expect(check(cfg, moment(2026, 12, 20, 12, 0)).inactive).toEqual([
+      { kind: "direct", permissionId: "r1", reason: "expired", boundary: "2026-12-14T18:00" },
+    ]);
+  });
+
+  it("до начала причина not-started, даже если момент отзыва уже прошёл", () => {
+    const cfg = revocable({ startsAt: "2026-12-20T09:00", revokedAt: "2026-12-10T12:00" });
+
+    expect(check(cfg, moment(2026, 12, 15)).inactive).toEqual([
+      { kind: "direct", permissionId: "r1", reason: "not-started", boundary: "2026-12-20T09:00" },
+    ]);
+  });
+
+  it("отзыв не отключает другой источник: второе прямое временное разрешение действует", () => {
+    const cfg = withPermissions([
+      {
+        id: "r1",
+        subject: { type: "user", id: "vera" },
+        serviceId: "mail",
+        revokedAt: "2026-12-10T12:00",
+      },
+      {
+        id: "r2",
+        subject: { type: "user", id: "vera" },
+        serviceId: "mail",
+        expiresAt: "2026-12-31T00:00",
+      },
+    ]);
+
+    const result = check(cfg, moment(2026, 12, 11));
+
+    expect(result.granted).toBe(true);
+    expect(result.sources).toEqual([{ kind: "direct", permissionId: "r2" }]);
+    expect(result.inactive).toEqual([
+      { kind: "direct", permissionId: "r1", reason: "revoked", boundary: "2026-12-10T12:00" },
+    ]);
+  });
+
+  it("отзыв прямого разрешения не трогает доступ по группе", () => {
+    const cfg = withPermissions([
+      {
+        id: "d1",
+        subject: { type: "user", id: "boris" },
+        serviceId: "mail",
+        revokedAt: "2026-12-10T12:00",
+      },
+      { id: "g1", subject: { type: "group", id: "support" }, serviceId: "mail" },
+    ]);
+
+    const result = check(cfg, moment(2026, 12, 11), "boris");
+
+    expect(result.granted).toBe(true);
+    expect(result.sources).toEqual([{ kind: "group", permissionId: "g1", groupId: "support" }]);
+    expect(result.inactive).toEqual([
+      { kind: "direct", permissionId: "d1", reason: "revoked", boundary: "2026-12-10T12:00" },
+    ]);
+  });
+
+  it("отозванное групповое разрешение не действует для участника", () => {
+    const cfg = withPermissions([
+      {
+        id: "g1",
+        subject: { type: "group", id: "support" },
+        serviceId: "mail",
+        revokedAt: "2026-12-10T12:00",
+      },
+    ]);
+
+    expect(check(cfg, moment(2026, 12, 10, 11, 59), "boris").granted).toBe(true);
+
+    const after = check(cfg, moment(2026, 12, 10, 12, 0), "boris");
+
+    expect(after.granted).toBe(false);
+    expect(after.inactive).toEqual([
+      {
+        kind: "group",
+        permissionId: "g1",
+        groupId: "support",
+        reason: "revoked",
+        boundary: "2026-12-10T12:00",
+      },
+    ]);
+  });
+
+  it("без revokedAt поведение прежнее", () => {
+    const cfg = revocable({ expiresAt: "2026-12-14T18:00" });
+
+    expect(check(cfg, moment(2026, 12, 14, 17, 59)).granted).toBe(true);
+    expect(check(cfg, moment(2026, 12, 14, 18, 0)).inactive).toEqual([
+      { kind: "direct", permissionId: "r1", reason: "expired", boundary: "2026-12-14T18:00" },
+    ]);
+  });
+
+  it("не учитывает секунды у отзыва: 11:59:59 доступ есть, 12:00:00 нет", () => {
+    const cfg = revocable({ revokedAt: "2026-12-10T12:00" });
+
+    expect(check(cfg, moment(2026, 12, 10, 11, 59, 59)).granted).toBe(true);
+    expect(check(cfg, moment(2026, 12, 10, 12, 0, 0)).granted).toBe(false);
+  });
+});

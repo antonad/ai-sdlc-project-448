@@ -8,6 +8,8 @@ type Props = {
   onGrant: (subject: Subject, serviceId: string, interval?: Interval) => GrantResult;
   onRevoke: (permissionId: string) => void;
   onRevokeFrom: (permissionId: string, moment: string) => RevokeFromResult;
+  /** Значение `evaluation-time`: момент отзыва, если поле отзыва пусто. */
+  evaluationMoment: string;
 };
 
 const subjectName = (subject: Subject, config: Config): string => {
@@ -36,15 +38,22 @@ const MESSAGES: Record<GrantResult, string> = {
 
 const REVOKE_FAILURES: Record<Exclude<RevokeFromResult, "revoked">, string> = {
   "invalid-moment": "Момент отзыва должен быть реальным моментом в формате ГГГГ-ММ-ДДTчч:мм",
+  permanent: "Постоянное разрешение нельзя отозвать, удалите его",
+  "already-revoked": "Разрешение уже отозвано",
   "unknown-permission": "Разрешение не найдено",
   "not-after-start": "Момент отзыва не позже начала, удалите разрешение",
   "already-ended": "Разрешение и так закончится раньше",
 };
 
-export const PermissionsPanel = ({ config, onGrant, onRevoke, onRevokeFrom }: Props) => {
-  // Отзыв с момента открыт максимум в одной строке: идентификатор разрешения и введённый момент.
-  const [revokingId, setRevokingId] = useState<string | null>(null);
-  const [revokeMoment, setRevokeMoment] = useState("");
+export const PermissionsPanel = ({
+  config,
+  onGrant,
+  onRevoke,
+  onRevokeFrom,
+  evaluationMoment,
+}: Props) => {
+  // Одно поле момента отзыва на все кнопки; пустое значит «момент проверки на экране».
+  const [revokedAt, setRevokedAt] = useState("");
   const [subjectValue, setSubjectValue] = useState("");
   const [serviceId, setServiceId] = useState("");
   const [startsAt, setStartsAt] = useState("");
@@ -61,19 +70,10 @@ export const PermissionsPanel = ({ config, onGrant, onRevoke, onRevokeFrom }: Pr
     setMessage(MESSAGES[result]);
   };
 
-  const openRevoke = (permissionId: string) => {
-    setRevokingId(permissionId);
-    setRevokeMoment(nowMoment());
-  };
-
-  const revokeFrom = (permissionId: string) => {
-    const result = onRevokeFrom(permissionId, revokeMoment);
-    if (result === "revoked") {
-      setMessage(`Разрешение отозвано с ${formatMoment(revokeMoment)}`);
-      setRevokingId(null);
-    } else {
-      setMessage(REVOKE_FAILURES[result]);
-    }
+  const revoke = (permissionId: string) => {
+    const moment = revokedAt || evaluationMoment || nowMoment();
+    const result = onRevokeFrom(permissionId, moment);
+    setMessage(result === "revoked" ? "Разрешение отозвано" : REVOKE_FAILURES[result]);
   };
 
   return (
@@ -94,35 +94,24 @@ export const PermissionsPanel = ({ config, onGrant, onRevoke, onRevokeFrom }: Pr
               <span data-testid={`permission-interval-${permission.id}`}>
                 {formatInterval(permission)}
               </span>
+              {permission.revokedAt !== undefined && (
+                <span data-testid={`permission-revoked-${permission.id}`}>
+                  {`, отозвано с ${formatMoment(permission.revokedAt)}`}
+                </span>
+              )}
             </Text>
             <Group gap="xs" align="flex-end">
-              {revokingId === permission.id && (
-                <>
-                  <TextInput
-                    type="datetime-local"
-                    size="xs"
-                    aria-label="Момент отзыва"
-                    data-testid={`permission-revoke-date-${permission.id}`}
-                    value={revokeMoment}
-                    onChange={(event) => setRevokeMoment(event.currentTarget.value)}
-                  />
+              {permission.revokedAt === undefined &&
+                (permission.startsAt !== undefined || permission.expiresAt !== undefined) && (
                   <Button
+                    variant="default"
                     size="xs"
-                    data-testid={`permission-revoke-confirm-${permission.id}`}
-                    onClick={() => revokeFrom(permission.id)}
+                    data-testid={`permission-revoke-${permission.id}`}
+                    onClick={() => revoke(permission.id)}
                   >
                     Отозвать
                   </Button>
-                </>
-              )}
-              <Button
-                variant="default"
-                size="xs"
-                data-testid={`permission-revoke-open-${permission.id}`}
-                onClick={() => openRevoke(permission.id)}
-              >
-                Отозвать с момента
-              </Button>
+                )}
               <Button
                 variant="default"
                 size="xs"
@@ -134,6 +123,13 @@ export const PermissionsPanel = ({ config, onGrant, onRevoke, onRevokeFrom }: Pr
             </Group>
           </Group>
         ))}
+        <TextInput
+          type="datetime-local"
+          label="Момент отзыва (пусто: момент проверки)"
+          data-testid="permission-revoked-at"
+          value={revokedAt}
+          onChange={(event) => setRevokedAt(event.currentTarget.value)}
+        />
         <Group align="flex-end">
           <NativeSelect
             label="Кому выдать"

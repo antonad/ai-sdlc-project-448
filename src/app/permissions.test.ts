@@ -226,11 +226,18 @@ describe("отзыв разрешения с момента", () => {
     const config = addPermission(seedConfig, vera, "ledger", interval);
     return { config, id: config.permissions.at(-1)?.id ?? "" };
   };
+  // У учебных разрешений нет границ: для отзыва заменяем интервал выбранного.
+  const withInterval = (id: string, interval: { startsAt?: string; expiresAt?: string }) => ({
+    ...seedConfig,
+    permissions: seedConfig.permissions.map((permission) =>
+      permission.id === id ? { ...permission, ...interval } : permission,
+    ),
+  });
   const permissionOf = (config: typeof seedConfig, id: string) =>
     config.permissions.find((permission) => permission.id === id);
   const term = { startsAt: "2026-11-20T09:00", expiresAt: "2026-12-03T18:00" };
 
-  it("сокращает окончание разрешения со сроком до момента отзыва", () => {
+  it("записывает revokedAt, срок остаётся прежним", () => {
     const { config, id } = withTerm(term);
 
     const outcome = revokePermissionFrom(config, id, "2026-11-27T12:00");
@@ -238,11 +245,12 @@ describe("отзыв разрешения с момента", () => {
     expect(outcome.result).toBe("revoked");
     expect(permissionOf(outcome.config, id)).toMatchObject({
       startsAt: "2026-11-20T09:00",
-      expiresAt: "2026-11-27T12:00",
+      expiresAt: "2026-12-03T18:00",
+      revokedAt: "2026-11-27T12:00",
     });
   });
 
-  it("до момента отзыва доступ есть, с момента отзыва и позже закончился", () => {
+  it("до момента отзыва доступ есть, с момента отзыва и позже нет", () => {
     const { config, id } = withTerm(term);
     const { config: revoked } = revokePermissionFrom(config, id, "2026-11-27T12:00");
 
@@ -251,23 +259,9 @@ describe("отзыв разрешения с момента", () => {
       const result = accessAt(revoked, "vera", "ledger", moment);
       expect(result.granted).toBe(false);
       expect(result.inactive).toEqual([
-        { kind: "direct", permissionId: id, reason: "expired", boundary: "2026-11-27T12:00" },
+        { kind: "direct", permissionId: id, reason: "revoked", boundary: "2026-11-27T12:00" },
       ]);
     }
-  });
-
-  it("отзывает бессрочное разрешение: появляется только окончание", () => {
-    const outcome = revokePermissionFrom(seedConfig, "p3", "2026-11-27T12:00");
-
-    expect(outcome.result).toBe("revoked");
-    expect(permissionOf(outcome.config, "p3")).toEqual({
-      id: "p3",
-      subject: { type: "user", id: "boris" },
-      serviceId: "repository",
-      expiresAt: "2026-11-27T12:00",
-    });
-    expect(accessAt(outcome.config, "boris", "repository", "2026-11-27T11:59").granted).toBe(true);
-    expect(accessAt(outcome.config, "boris", "repository", "2026-11-27T12:00").granted).toBe(false);
   });
 
   it("отзывает разрешение только с началом", () => {
@@ -275,24 +269,69 @@ describe("отзыв разрешения с момента", () => {
 
     const outcome = revokePermissionFrom(config, id, "2026-11-27T12:00");
 
-    expect(permissionOf(outcome.config, id)).toMatchObject({
+    expect(outcome.result).toBe("revoked");
+    expect(permissionOf(outcome.config, id)).toEqual({
+      id,
+      subject: vera,
+      serviceId: "ledger",
       startsAt: "2026-11-20T09:00",
-      expiresAt: "2026-11-27T12:00",
+      revokedAt: "2026-11-27T12:00",
     });
   });
 
-  it("отзыв в полночь записывается целиком, без переноса на прошлый день", () => {
-    const outcome = revokePermissionFrom(seedConfig, "p3", "2027-01-01T00:00");
+  it("отзывает разрешение только с окончанием", () => {
+    const { config, id } = withTerm({ expiresAt: "2026-12-03T18:00" });
 
-    expect(permissionOf(outcome.config, "p3")?.expiresAt).toBe("2027-01-01T00:00");
+    const outcome = revokePermissionFrom(config, id, "2026-11-27T12:00");
+
+    expect(outcome.result).toBe("revoked");
+    expect(permissionOf(outcome.config, id)).toEqual({
+      id,
+      subject: vera,
+      serviceId: "ledger",
+      expiresAt: "2026-12-03T18:00",
+      revokedAt: "2026-11-27T12:00",
+    });
+    expect(accessAt(outcome.config, "vera", "ledger", "2026-11-27T11:59").granted).toBe(true);
+    expect(accessAt(outcome.config, "vera", "ledger", "2026-11-27T12:00").granted).toBe(false);
   });
 
   it("отзывает групповое разрешение, доступ участников группы закрывается с момента", () => {
-    const outcome = revokePermissionFrom(seedConfig, "p5", "2026-11-27T12:00");
+    const config = withInterval("p5", { expiresAt: "2026-12-31T00:00" });
 
-    expect(permissionOf(outcome.config, "p5")?.expiresAt).toBe("2026-11-27T12:00");
+    const outcome = revokePermissionFrom(config, "p5", "2026-11-27T12:00");
+
+    expect(outcome.result).toBe("revoked");
+    expect(permissionOf(outcome.config, "p5")?.revokedAt).toBe("2026-11-27T12:00");
     expect(accessAt(outcome.config, "boris", "mail", "2026-11-27T11:59").granted).toBe(true);
     expect(accessAt(outcome.config, "boris", "mail", "2026-11-27T12:00").granted).toBe(false);
+  });
+
+  it("принимает момент в прошлом", () => {
+    const config = withInterval("p3", { startsAt: "2019-01-01T00:00" });
+
+    const outcome = revokePermissionFrom(config, "p3", "2020-01-10T08:30");
+
+    expect(outcome.result).toBe("revoked");
+    expect(permissionOf(outcome.config, "p3")?.revokedAt).toBe("2020-01-10T08:30");
+  });
+
+  it("отказывает для постоянного разрешения", () => {
+    const outcome = revokePermissionFrom(seedConfig, "p3", "2026-11-27T12:00");
+
+    expect(outcome.result).toBe("permanent");
+    expect(outcome.config).toBe(seedConfig);
+  });
+
+  it("отказывает для уже отозванного разрешения", () => {
+    const { config, id } = withTerm(term);
+    const { config: revoked } = revokePermissionFrom(config, id, "2026-11-27T12:00");
+
+    const outcome = revokePermissionFrom(revoked, id, "2026-11-28T12:00");
+
+    expect(outcome.result).toBe("already-revoked");
+    expect(outcome.config).toBe(revoked);
+    expect(permissionOf(outcome.config, id)?.revokedAt).toBe("2026-11-27T12:00");
   });
 
   it("отказывает, если момент отзыва совпадает с началом или раньше него", () => {
@@ -306,13 +345,13 @@ describe("отзыв разрешения с момента", () => {
     }
   });
 
-  it("отзыв через минуту после начала оставляет одну минуту действия", () => {
+  it("отзыв через минуту после начала принимается", () => {
     const { config, id } = withTerm(term);
 
     const outcome = revokePermissionFrom(config, id, "2026-11-20T09:01");
 
     expect(outcome.result).toBe("revoked");
-    expect(permissionOf(outcome.config, id)).toMatchObject({ expiresAt: "2026-11-20T09:01" });
+    expect(permissionOf(outcome.config, id)?.revokedAt).toBe("2026-11-20T09:01");
   });
 
   it("отказывает, если разрешение и так закончится в момент отзыва или раньше", () => {
@@ -326,16 +365,20 @@ describe("отзыв разрешения с момента", () => {
     }
   });
 
-  it("отзыв за минуту до окончания сокращает срок на эту минуту", () => {
+  it("отзыв за минуту до окончания принимается", () => {
     const { config, id } = withTerm(term);
 
     const outcome = revokePermissionFrom(config, id, "2026-12-03T17:59");
 
     expect(outcome.result).toBe("revoked");
-    expect(permissionOf(outcome.config, id)).toMatchObject({ expiresAt: "2026-12-03T17:59" });
+    expect(permissionOf(outcome.config, id)).toMatchObject({
+      expiresAt: "2026-12-03T18:00",
+      revokedAt: "2026-12-03T17:59",
+    });
   });
 
   it("отказывает при пустом, неверном и несуществующем моменте", () => {
+    const { config, id } = withTerm(term);
     const moments = [
       "",
       "2026-11-27",
@@ -347,10 +390,10 @@ describe("отзыв разрешения с момента", () => {
       "ерунда",
     ];
     for (const moment of moments) {
-      const outcome = revokePermissionFrom(seedConfig, "p3", moment);
+      const outcome = revokePermissionFrom(config, id, moment);
 
       expect(outcome.result).toBe("invalid-moment");
-      expect(outcome.config).toBe(seedConfig);
+      expect(outcome.config).toBe(config);
     }
   });
 
@@ -365,25 +408,53 @@ describe("отзыв разрешения с момента", () => {
     expect(outcome.config).toBe(seedConfig);
   });
 
+  it("постоянное разрешение проверяется раньше, чем уже отозванное", () => {
+    const revokedPermanent = {
+      ...seedConfig,
+      permissions: seedConfig.permissions.map((permission) =>
+        permission.id === "p3" ? { ...permission, revokedAt: "2026-11-01T00:00" } : permission,
+      ),
+    };
+
+    expect(revokePermissionFrom(revokedPermanent, "p3", "2026-11-27T12:00").result).toBe(
+      "permanent",
+    );
+  });
+
+  it("уже отозванное проверяется раньше, чем момент до начала и после окончания", () => {
+    const { config, id } = withTerm(term);
+    const { config: revoked } = revokePermissionFrom(config, id, "2026-11-27T12:00");
+
+    expect(revokePermissionFrom(revoked, id, "2026-11-10T09:00").result).toBe("already-revoked");
+    expect(revokePermissionFrom(revoked, id, "2026-12-20T09:00").result).toBe("already-revoked");
+  });
+
   // Требование СБ №3: отзыв меняет ровно одну запись.
   it("отзыв p3 оставляет p1, p2, p4, p5, пользователей, группы и сервисы прежними", () => {
-    const before = structuredClone(seedConfig);
+    const config = withInterval("p3", { expiresAt: "2026-12-31T00:00" });
+    const before = structuredClone(config);
 
-    const { config: next } = revokePermissionFrom(seedConfig, "p3", "2026-11-27T12:00");
+    const { config: next } = revokePermissionFrom(config, "p3", "2026-11-27T12:00");
 
     expect(next.permissions).toHaveLength(before.permissions.length);
     expect(next.permissions.filter((permission) => permission.id !== "p3")).toEqual(
       before.permissions.filter((permission) => permission.id !== "p3"),
     );
+    expect(permissionOf(next, "p3")).toEqual({
+      ...permissionOf(before, "p3"),
+      revokedAt: "2026-11-27T12:00",
+    });
     expect(next.users).toEqual(before.users);
     expect(next.groups).toEqual(before.groups);
     expect(next.services).toEqual(before.services);
-    expect(seedConfig).toEqual(before);
+    expect(config).toEqual(before);
   });
 
-  // Требование СБ №4: у Анны два источника доступа к «Учёту».
+  // Требование СБ №4: у Анны два источника доступа к «Учёту», отзыв одного не убирает второй.
   it("после отзыва p1 с 27.11.2026 12:00 доступ Анны в 12:00 остаётся через группу «Бухгалтерия»", () => {
-    const { config: next } = revokePermissionFrom(seedConfig, "p1", "2026-11-27T12:00");
+    const config = withInterval("p1", { startsAt: "2026-11-20T09:00" });
+
+    const { config: next } = revokePermissionFrom(config, "p1", "2026-11-27T12:00");
 
     const atRevoke = accessAt(next, "anna", "ledger", "2026-11-27T12:00");
     expect(atRevoke.granted).toBe(true);
@@ -391,18 +462,11 @@ describe("отзыв разрешения с момента", () => {
       { kind: "group", permissionId: "p2", groupId: "accounting" },
     ]);
     expect(atRevoke.inactive).toEqual([
-      { kind: "direct", permissionId: "p1", reason: "expired", boundary: "2026-11-27T12:00" },
+      { kind: "direct", permissionId: "p1", reason: "revoked", boundary: "2026-11-27T12:00" },
     ]);
     expect(accessAt(next, "anna", "ledger", "2026-11-27T11:59").sources).toEqual([
       { kind: "direct", permissionId: "p1" },
       { kind: "group", permissionId: "p2", groupId: "accounting" },
     ]);
-  });
-
-  it("принимает момент в прошлом", () => {
-    const outcome = revokePermissionFrom(seedConfig, "p3", "2020-01-10T08:30");
-
-    expect(outcome.result).toBe("revoked");
-    expect(permissionOf(outcome.config, "p3")?.expiresAt).toBe("2020-01-10T08:30");
   });
 });

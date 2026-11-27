@@ -133,4 +133,20 @@ describe("хранение конфигурации в браузере", () => 
 
     expect(loadConfig(storage)).toEqual(seedConfig);
   });
+
+  it("читает сохранённую копию версии 3 с отзывом разрешения", () => {
+    const revoked = {
+      ...seedConfig,
+      permissions: [
+        { ...seedConfig.permissions[0], revokedAt: "2026-12-10T12:00" },
+        ...seedConfig.permissions.slice(1, 3),
+      ],
+    };
+    saveConfig(storage, revoked);
+
+    const loaded = loadConfig(storage);
+
+    expect(loaded).toEqual(revoked);
+    expect(loaded.permissions[0].revokedAt).toBe("2026-12-10T12:00");
+  });
 });

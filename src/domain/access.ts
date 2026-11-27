@@ -12,7 +12,7 @@ export type AccessSource =
   | { kind: "group"; permissionId: string; groupId: string };
 
 /** Почему разрешение не действует в момент расчёта: ещё не началось или уже закончилось. */
-export type InactiveReason = "not-started" | "expired";
+export type InactiveReason = "not-started" | "expired" | "revoked";
 
 /** Подходящее сотруднику и сервису разрешение, которое не действует в момент расчёта. */
 export type InactivePermission = AccessSource & {
@@ -37,13 +37,17 @@ const minuteKey = (at: Date) =>
   `${pad(at.getFullYear(), 4)}-${pad(at.getMonth() + 1, 2)}-${pad(at.getDate(), 2)}` +
   `T${pad(at.getHours(), 2)}:${pad(at.getMinutes(), 2)}`;
 
-/** Причина, по которой разрешение не действует в минуту `key`, или `undefined`, если действует. Интервал `[startsAt, expiresAt)`. */
+/** Причина, по которой разрешение не действует в минуту `key`, или `undefined`, если действует. Интервал `[startsAt, expiresAt)`, отзыв `revokedAt` обрывает его раньше. */
 const inactivity = (
-  { startsAt, expiresAt }: Permission,
+  { startsAt, expiresAt, revokedAt }: Permission,
   key: string,
 ): { reason: InactiveReason; boundary: string } | undefined => {
   if (startsAt !== undefined && key < startsAt)
     return { reason: "not-started", boundary: startsAt };
+  // Отзыв считается причиной, только если он обрывает срок раньше окончания.
+  const revokedFirst =
+    revokedAt !== undefined && (expiresAt === undefined || revokedAt < expiresAt);
+  if (revokedFirst && key >= revokedAt) return { reason: "revoked", boundary: revokedAt };
   if (expiresAt !== undefined && key >= expiresAt)
     return { reason: "expired", boundary: expiresAt };
   return undefined;

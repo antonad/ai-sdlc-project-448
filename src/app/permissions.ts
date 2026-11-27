@@ -74,12 +74,15 @@ export type RevokeFromResult =
   | "revoked"
   | "invalid-moment"
   | "unknown-permission"
+  | "permanent"
+  | "already-revoked"
   | "not-after-start"
   | "already-ended";
 
 /**
- * Отзывает разрешение с момента `moment` (`ГГГГ-ММ-ДДTчч:мм`): момент — первая минута без
- * доступа, поэтому он становится окончанием. Меняет ровно одно разрешение.
+ * Отзывает разрешение с интервалом с момента `moment` (`ГГГГ-ММ-ДДTчч:мм`): момент — первая
+ * минута без доступа, он записывается в `revokedAt`, срок остаётся прежним. Меняет ровно одно
+ * разрешение.
  */
 export const revokePermissionFrom = (
   config: Config,
@@ -94,6 +97,12 @@ export const revokePermissionFrom = (
   if (!target) {
     return refuse("unknown-permission");
   }
+  if (target.startsAt === undefined && target.expiresAt === undefined) {
+    return refuse("permanent");
+  }
+  if (target.revokedAt !== undefined) {
+    return refuse("already-revoked");
+  }
   if (target.startsAt !== undefined && moment <= target.startsAt) {
     return refuse("not-after-start");
   }
@@ -104,7 +113,7 @@ export const revokePermissionFrom = (
     config: {
       ...config,
       permissions: config.permissions.map((permission) =>
-        permission.id === permissionId ? { ...permission, expiresAt: moment } : permission,
+        permission.id === permissionId ? { ...permission, revokedAt: moment } : permission,
       ),
     },
     result: "revoked",
