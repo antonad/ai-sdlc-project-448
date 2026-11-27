@@ -1,4 +1,4 @@
-# config-transfer Specification
+# config-import Specification
 
 ## Purpose
 Экспорт и импорт конфигурации в JSON-файл. Формат описан в `src/app/config-file.ts`, файл проверяется целиком до изменения данных.
