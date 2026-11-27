@@ -88,3 +88,27 @@ describe("хук useSimulator: граница локального времен�
     expect(result.current.config).toBe(before);
   });
 });
+
+describe("хук useSimulator: объяснение доступа", () => {
+  it("переводит локальный момент в UTC и не меняет конфигурацию и хранилище", () => {
+    const { result } = renderHook(() => useSimulator());
+    act(() => {
+      result.current.grantPermission(vera, "ledger", {
+        startsAt: "2026-12-01T14:00",
+        expiresAt: "2026-12-14T23:00",
+      });
+    });
+    const id = result.current.config.permissions.at(-1)!.id;
+    const before = result.current.config;
+    const stored = window.localStorage.getItem(window.localStorage.key(0) ?? "");
+
+    // Локальное 13:59 это 08:59Z, за минуту до начала (UTC+5).
+    const early = result.current.explainAccess("vera", "ledger", "2026-12-01T13:59");
+    const inside = result.current.explainAccess("vera", "ledger", "2026-12-01T14:00");
+
+    expect(early.find((item) => item.permissionId === id)?.status).toBe("pending");
+    expect(inside.find((item) => item.permissionId === id)?.status).toBe("active");
+    expect(result.current.config).toBe(before);
+    expect(window.localStorage.getItem(window.localStorage.key(0) ?? "")).toBe(stored);
+  });
+});

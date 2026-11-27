@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { calculateAccess } from "../domain/access";
-import type { AccessResult } from "../domain/access";
+import { calculateAccess, explainAccess } from "../domain/access";
+import type { AccessResult, ExplainedPermission } from "../domain/access";
 import type { Config, Subject } from "../domain/model";
 import { exportConfig, parseConfigFile } from "./config-file";
 import { intervalError, isValidMoment, isValidUtcMoment, localToUtc, momentToDate } from "./dates";
@@ -18,7 +18,13 @@ import { loadConfig, saveConfig } from "./storage";
 export { formatInterval, formatMoment, nowMoment } from "./dates";
 export { usersInGroup } from "./users";
 
-export type { AccessResult, AccessSource, InactivePermission } from "../domain/access";
+export type {
+  AccessResult,
+  AccessSource,
+  ExplainedPermission,
+  ExplainedStatus,
+  InactivePermission,
+} from "../domain/access";
 export type { Interval, RevokeFromResult } from "./permissions";
 export type { EntityChange, ImportPreview } from "./import-preview";
 export type { Config, Group, Permission, Service, Subject, User } from "../domain/model";
@@ -30,6 +36,11 @@ export type Simulator = {
   config: Config;
   /** `atMoment` — момент `ГГГГ-ММ-ДДTчч:мм`; пустая или невалидная строка значит «сейчас». */
   checkAccess: (userId: string, serviceId: string, atMoment?: string) => AccessResult;
+  /**
+   * Все разрешения пары со статусом на момент (формат и правила пустого момента как у `checkAccess`):
+   * действует, ещё не началось, истекло, отозвано. Ничего не меняет.
+   */
+  explainAccess: (userId: string, serviceId: string, atMoment?: string) => ExplainedPermission[];
   /** Выдаёт постоянное разрешение или разрешение на интервал. Неверный интервал конфигурацию не меняет. */
   grantPermission: (subject: Subject, serviceId: string, interval?: Interval) => GrantResult;
   /** Удаляет разрешение целиком: после этого симулятор не помнит, что доступ был. */
@@ -74,6 +85,8 @@ export const useSimulator = (): Simulator => {
     config,
     checkAccess: (userId, serviceId, atMoment) =>
       calculateAccess(config, { userId, serviceId, at: momentToDate(atMoment) }),
+    explainAccess: (userId, serviceId, atMoment) =>
+      explainAccess(config, { userId, serviceId, at: momentToDate(atMoment) }),
     grantPermission: (subject, serviceId, interval) => {
       // Компонент отдаёт локальное время полей, в данные оно попадает в UTC.
       const bounds = normalizeInterval(interval);

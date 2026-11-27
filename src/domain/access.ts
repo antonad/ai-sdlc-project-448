@@ -49,7 +49,20 @@ const inactivity = (
   return undefined;
 };
 
-export const calculateAccess = (config: Config, query: AccessQuery): AccessResult => {
+/** Статус разрешения пары в момент расчёта. */
+export type ExplainedStatus = "active" | "pending" | "expired" | "revoked";
+
+/** Разрешение пары с источником и статусом; `boundary` задан у неактивных. */
+export type ExplainedPermission = AccessSource & {
+  status: ExplainedStatus;
+  boundary?: string;
+};
+
+/**
+ * Все разрешения пары (сотрудник, сервис) со статусом на момент `at`: прямые идут первыми,
+ * групповые следуют в порядке разрешений. Единственное место, где решается, действует ли разрешение.
+ */
+export const explainAccess = (config: Config, query: AccessQuery): ExplainedPermission[] => {
   const user = config.users.find((candidate) => candidate.id === query.userId);
   const groupIds = user?.groupIds ?? [];
   const key = minuteKey(query.at);
@@ -76,12 +89,27 @@ export const calculateAccess = (config: Config, query: AccessQuery): AccessResul
     })),
   ];
 
+  return candidates.map(({ permission, source }): ExplainedPermission => {
+    const problem = inactivity(permission, key);
+    if (!problem) return { ...source, status: "active" };
+    const status = problem.reason === "not-started" ? "pending" : problem.reason;
+    return { ...source, status, boundary: problem.boundary };
+  });
+};
+
+export const calculateAccess = (config: Config, query: AccessQuery): AccessResult => {
   const sources: AccessSource[] = [];
   const inactive: InactivePermission[] = [];
-  for (const { permission, source } of candidates) {
-    const problem = inactivity(permission, key);
-    if (problem) inactive.push({ ...source, ...problem });
-    else sources.push(source);
+  for (const { status, boundary, ...source } of explainAccess(config, query)) {
+    if (status === "active" || boundary === undefined) {
+      sources.push(source);
+    } else {
+      inactive.push({
+        ...source,
+        reason: status === "pending" ? "not-started" : status,
+        boundary,
+      });
+    }
   }
 
   return { granted: sources.length > 0, sources, inactive };

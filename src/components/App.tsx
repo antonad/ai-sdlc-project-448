@@ -1,7 +1,7 @@
 import { Container, List, NativeSelect, Paper, Stack, Text, TextInput, Title } from "@mantine/core";
 import { useState } from "react";
 import { formatMoment, nowMoment, useSimulator, usersInGroup } from "../app";
-import type { AccessSource, Config, InactivePermission } from "../app";
+import type { AccessSource, Config, ExplainedPermission, InactivePermission } from "../app";
 import { ConfigTransfer } from "./ConfigTransfer";
 import { PermissionsPanel } from "./PermissionsPanel";
 
@@ -24,10 +24,25 @@ const describeInactive = (item: InactivePermission, config: Config): string => {
   return `${describeSource(item, config)}: ${reason}`;
 };
 
+const describeStatus = (item: ExplainedPermission): string => {
+  const moment = item.boundary === undefined ? "" : formatMoment(item.boundary);
+  switch (item.status) {
+    case "active":
+      return "действует";
+    case "pending":
+      return `ещё не началось, с ${moment}`;
+    case "expired":
+      return `истекло, закончилось ${moment}`;
+    case "revoked":
+      return `отозвано ${moment}`;
+  }
+};
+
 export const App = () => {
   const {
     config,
     checkAccess,
+    explainAccess,
     grantPermission,
     revokePermission,
     revokePermissionFrom,
@@ -44,6 +59,7 @@ export const App = () => {
   const [atMoment, setAtMoment] = useState(nowMoment);
 
   const result = userId && serviceId ? checkAccess(userId, serviceId, atMoment) : null;
+  const explanation = userId && serviceId ? explainAccess(userId, serviceId, atMoment) : null;
 
   return (
     <Container size="sm" py="xl">
@@ -115,6 +131,28 @@ export const App = () => {
             </List>
           )}
         </Paper>
+        {explanation && (
+          <Paper withBorder p="md" data-testid="access-explanation">
+            <Title order={2} size="h4">
+              Объяснение доступа
+            </Title>
+            {explanation.length === 0 ? (
+              <Text mt="sm">Разрешений для этой пары нет</Text>
+            ) : (
+              <List mt="sm">
+                {explanation.map((entry) => (
+                  <List.Item
+                    key={entry.permissionId}
+                    data-testid={`explanation-item-${entry.permissionId}`}
+                    data-status={entry.status}
+                  >
+                    {describeSource(entry, config)}: {describeStatus(entry)}
+                  </List.Item>
+                ))}
+              </List>
+            )}
+          </Paper>
+        )}
         <PermissionsPanel
           config={config}
           onGrant={grantPermission}
