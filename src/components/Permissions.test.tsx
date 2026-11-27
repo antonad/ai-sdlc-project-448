@@ -126,7 +126,7 @@ describe("импорт конфигурации", () => {
     localStorage.setItem(STORAGE_KEY, exportConfig(saved));
     renderApp();
     const broken = JSON.parse(exportConfig(seedConfig));
-    broken.permissions[0].expiresAt = "2026-02-30T10:00";
+    broken.permissions[0].expiresAt = "2026-02-30T10:00Z";
     await upload(JSON.stringify(broken));
 
     const alert = await screen.findByTestId("import-error");
@@ -395,7 +395,7 @@ describe("отзыв разрешения с момента", () => {
     expect(screen.queryByTestId("permission-revoke-p6")).not.toBeInTheDocument();
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
     expect(saved.permissions.find((item: { id: string }) => item.id === "p6")).toMatchObject({
-      revokedAt: "2026-11-27T12:00",
+      revokedAt: "2026-11-27T07:00Z",
     });
   });
 

@@ -47,7 +47,43 @@ describe("хранение конфигурации в браузере", () => 
     expect(loadConfig(storage)).toEqual(changed);
   });
 
-  it("читает сохранённую копию версии 2 с переводом дней в моменты, а не учебные данные", () => {
+  it("читает сохранённую копию версии 3 как UTC, а не учебные данные", () => {
+    const changed = {
+      ...seedConfig,
+      permissions: [
+        {
+          ...seedConfig.permissions[0],
+          startsAt: "2026-12-01T09:00",
+          expiresAt: "2026-12-14T18:30",
+          revokedAt: "2026-12-10T12:00",
+        },
+        ...seedConfig.permissions.slice(1, 3),
+      ],
+    };
+    storage.setItem(STORAGE_KEY, JSON.stringify({ version: 3, ...changed }));
+
+    const loaded = loadConfig(storage);
+
+    expect(loaded).not.toEqual(seedConfig);
+    expect(loaded.permissions[0]).toMatchObject({
+      startsAt: "2026-12-01T09:00Z",
+      expiresAt: "2026-12-14T18:30Z",
+      revokedAt: "2026-12-10T12:00Z",
+    });
+  });
+
+  it("возвращается к учебным данным, если в копии версии 4 момент без Z", () => {
+    const broken = {
+      version: 4,
+      ...seedConfig,
+      permissions: [{ ...seedConfig.permissions[0], startsAt: "2026-12-01T09:00" }],
+    };
+    storage.setItem(STORAGE_KEY, JSON.stringify(broken));
+
+    expect(loadConfig(storage)).toEqual(seedConfig);
+  });
+
+  it("читает сохранённую копию версии 2 с переводом дней в моменты UTC, а не учебные данные", () => {
     const changed = {
       ...seedConfig,
       permissions: [
@@ -63,25 +99,25 @@ describe("хранение конфигурации в браузере", () => 
     expect(loaded.permissions).toEqual([
       {
         ...seedConfig.permissions[0],
-        startsAt: "2026-12-01T00:00",
-        expiresAt: "2027-01-01T00:00",
+        startsAt: "2026-12-01T00:00Z",
+        expiresAt: "2027-01-01T00:00Z",
       },
       ...seedConfig.permissions.slice(1, 3),
     ]);
   });
 
-  it("возвращается к учебным данным, если в копии версии 3 несуществующий момент", () => {
+  it("возвращается к учебным данным, если в копии версии 4 несуществующий момент", () => {
     const broken = {
-      version: 3,
+      version: 4,
       ...seedConfig,
-      permissions: [{ ...seedConfig.permissions[0], expiresAt: "2026-02-30T10:00" }],
+      permissions: [{ ...seedConfig.permissions[0], expiresAt: "2026-02-30T10:00Z" }],
     };
     storage.setItem(STORAGE_KEY, JSON.stringify(broken));
 
     expect(loadConfig(storage)).toEqual(seedConfig);
   });
 
-  it("после сохранения копия содержит версию 3 со сроками в моментах", () => {
+  it("после сохранения копия содержит версию 4 со сроками в моментах UTC", () => {
     storage.setItem(
       STORAGE_KEY,
       JSON.stringify({
@@ -94,8 +130,8 @@ describe("хранение конфигурации в браузере", () => 
     saveConfig(storage, loadConfig(storage));
 
     const saved = JSON.parse(storage.getItem(STORAGE_KEY) ?? "{}");
-    expect(saved.version).toBe(3);
-    expect(saved.permissions[0]).toMatchObject({ expiresAt: "2026-12-15T00:00" });
+    expect(saved.version).toBe(4);
+    expect(saved.permissions[0]).toMatchObject({ expiresAt: "2026-12-15T00:00Z" });
     expect(saved.permissions[0]).not.toHaveProperty("endsOn");
   });
 
@@ -134,11 +170,11 @@ describe("хранение конфигурации в браузере", () => 
     expect(loadConfig(storage)).toEqual(seedConfig);
   });
 
-  it("читает сохранённую копию версии 3 с отзывом разрешения", () => {
+  it("читает сохранённую копию версии 4 с отзывом разрешения", () => {
     const revoked = {
       ...seedConfig,
       permissions: [
-        { ...seedConfig.permissions[0], revokedAt: "2026-12-10T12:00" },
+        { ...seedConfig.permissions[0], revokedAt: "2026-12-10T12:00Z" },
         ...seedConfig.permissions.slice(1, 3),
       ],
     };
@@ -147,6 +183,6 @@ describe("хранение конфигурации в браузере", () => 
     const loaded = loadConfig(storage);
 
     expect(loaded).toEqual(revoked);
-    expect(loaded.permissions[0].revokedAt).toBe("2026-12-10T12:00");
+    expect(loaded.permissions[0].revokedAt).toBe("2026-12-10T12:00Z");
   });
 });

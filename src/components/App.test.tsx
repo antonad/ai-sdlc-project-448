@@ -172,8 +172,8 @@ describe("проверка на момент: разрешение «Север�
     id: "s1",
     subject: { type: "user", id: "vera" },
     serviceId: "ledger",
-    startsAt: "2026-12-01T09:00",
-    expiresAt: "2026-12-14T18:00",
+    startsAt: "2026-12-01T09:00Z",
+    expiresAt: "2026-12-14T18:00Z",
   } as const;
 
   const setMoment = (value: string) =>
@@ -209,28 +209,28 @@ describe("проверка на момент: разрешение «Север�
   it("начало включительно: в момент начала доступ есть, за минуту до отказ", async () => {
     await prepare();
 
-    setMoment("2026-12-01T09:00");
+    setMoment("2026-12-01T14:00");
     expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
 
-    setMoment("2026-12-01T08:59");
+    setMoment("2026-12-01T13:59");
     expect(screen.getByTestId("access-result")).toHaveTextContent("Доступа нет");
     expect(screen.queryByTestId("access-sources")).not.toBeInTheDocument();
     expect(screen.getByTestId("access-inactive")).toHaveTextContent(
-      "Прямое разрешение: ещё не началось, с 01.12.2026 09:00",
+      "Прямое разрешение: ещё не началось, с 01.12.2026 14:00",
     );
   });
 
   it("окончание исключительно: за минуту до него доступ есть, в сам момент отказ", async () => {
     await prepare();
 
-    setMoment("2026-12-14T17:59");
+    setMoment("2026-12-14T22:59");
     expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
 
-    setMoment("2026-12-14T18:00");
+    setMoment("2026-12-14T23:00");
     expect(screen.getByTestId("access-result")).toHaveTextContent("Доступа нет");
     expect(screen.queryByTestId("access-sources")).not.toBeInTheDocument();
     expect(screen.getByTestId("access-inactive")).toHaveTextContent(
-      "Прямое разрешение: закончилось 14.12.2026 18:00",
+      "Прямое разрешение: закончилось 14.12.2026 23:00",
     );
   });
 
@@ -251,7 +251,7 @@ describe("проверка на момент: разрешение «Север�
     setMoment("2026-12-15T12:00");
 
     expect(screen.getByTestId("access-inactive")).toHaveTextContent(
-      "Группа «Разработка»: закончилось 14.12.2026 18:00",
+      "Группа «Разработка»: закончилось 14.12.2026 23:00",
     );
   });
 
@@ -285,7 +285,7 @@ describe("проверка на момент: разрешение «Север�
     setMoment("2026-12-10T12:00");
     expect(sourceCount()).toHaveLength(2);
 
-    setMoment("2026-12-14T18:00");
+    setMoment("2026-12-14T23:00");
     expect(sourceCount()).toHaveLength(1);
   });
 
@@ -296,10 +296,10 @@ describe("проверка на момент: разрешение «Север�
     await events.selectOptions(screen.getByTestId("permission-subject-select"), "Анна Белова");
     await events.selectOptions(screen.getByTestId("permission-service-select"), "Учёт");
     fireEvent.change(screen.getByTestId("permission-starts-at"), {
-      target: { value: "2026-12-01T09:00" },
+      target: { value: "2026-12-01T14:00" },
     });
     fireEvent.change(screen.getByTestId("permission-expires-at"), {
-      target: { value: "2026-12-14T18:00" },
+      target: { value: "2026-12-14T23:00" },
     });
     fireEvent.click(screen.getByTestId("permission-add"));
 
@@ -308,8 +308,52 @@ describe("проверка на момент: разрешение «Север�
 
     setMoment("2026-12-10T12:00");
     expect(sourceCount()).toHaveLength(3);
-    setMoment("2026-12-14T18:00");
+    setMoment("2026-12-14T23:00");
     expect(sourceCount()).toHaveLength(2);
+  });
+
+  it("выдача в поясе UTC+5 пишет в запись и localStorage UTC, список показывает локальное время", async () => {
+    renderApp();
+    const events = userEvent.setup();
+    await events.selectOptions(screen.getByTestId("permission-subject-select"), "Вера Лисицына");
+    await events.selectOptions(screen.getByTestId("permission-service-select"), "Учёт");
+    fireEvent.change(screen.getByTestId("permission-starts-at"), {
+      target: { value: "2026-12-01T14:00" },
+    });
+    fireEvent.change(screen.getByTestId("permission-expires-at"), {
+      target: { value: "2026-12-14T23:00" },
+    });
+    fireEvent.click(screen.getByTestId("permission-add"));
+
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
+    expect(saved.version).toBe(4);
+    expect(saved.permissions.find((item: { id: string }) => item.id === "p6")).toMatchObject({
+      startsAt: "2026-12-01T09:00Z",
+      expiresAt: "2026-12-14T18:00Z",
+    });
+    expect(screen.getByTestId("permission-interval-p6")).toHaveTextContent(
+      "с 01.12.2026 14:00 до 14.12.2026 23:00",
+    );
+  });
+
+  it("импорт файла версии 3: значения без пояса читаются как UTC, на экране локальное время", async () => {
+    renderApp();
+    const base = JSON.parse(exportConfig(seedConfig));
+    base.version = 3;
+    base.permissions.push({
+      id: "s1",
+      subject: { type: "user", id: "vera" },
+      serviceId: "ledger",
+      startsAt: "2026-12-01T09:00",
+      expiresAt: "2026-12-14T18:00",
+    });
+    const file = new File([JSON.stringify(base)], "config.json", { type: "application/json" });
+    await userEvent.setup().upload(screen.getByTestId("import-input"), file);
+
+    expect(await screen.findByTestId("import-status")).toHaveTextContent("Конфигурация заменена");
+    expect(screen.getByTestId("permission-interval-s1")).toHaveTextContent(
+      "с 01.12.2026 14:00 до 14.12.2026 23:00",
+    );
   });
 
   it("пустое поле считает на «сейчас» (часы подменены)", async () => {
@@ -319,7 +363,7 @@ describe("проверка на момент: разрешение «Север�
 
     expect(screen.getByTestId("evaluation-time")).toHaveValue("2026-12-20T10:00");
     expect(screen.getByTestId("access-result")).toHaveTextContent("Доступа нет");
-    expect(screen.getByTestId("access-inactive")).toHaveTextContent("закончилось 14.12.2026 18:00");
+    expect(screen.getByTestId("access-inactive")).toHaveTextContent("закончилось 14.12.2026 23:00");
 
     setMoment("2026-12-10T12:00");
     expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
@@ -368,8 +412,8 @@ describe("отзыв разрешения с момента: договор «С
     id: "s1",
     subject: { type: "user", id: "vera" },
     serviceId: "ledger",
-    startsAt: "2026-11-20T09:00",
-    expiresAt: "2026-12-03T18:00",
+    startsAt: "2026-11-20T04:00Z",
+    expiresAt: "2026-12-03T13:00Z",
   } as const;
 
   const prepare = (extra: object[] = [contractor]) => {
@@ -417,22 +461,22 @@ describe("отзыв разрешения с момента: договор «С
     );
     expect(screen.queryByTestId("permission-revoke-s1")).not.toBeInTheDocument();
     expect(savedPermission("s1")).toMatchObject({
-      startsAt: "2026-11-20T09:00",
-      expiresAt: "2026-12-03T18:00",
-      revokedAt: "2026-11-27T12:00",
+      startsAt: "2026-11-20T04:00Z",
+      expiresAt: "2026-12-03T13:00Z",
+      revokedAt: "2026-11-27T07:00Z",
     });
   });
 
-  it("пустое поле берёт момент проверки с экрана", () => {
+  it("пустое поле берёт локальный момент проверки с экрана и пишет UTC", () => {
     prepare();
-    setField("evaluation-time", "2026-11-27T12:00");
+    setField("evaluation-time", "2026-11-27T17:00");
 
     fireEvent.click(screen.getByTestId("permission-revoke-s1"));
 
     expect(screen.getByTestId("permission-revoked-s1")).toHaveTextContent(
-      ", отозвано с 27.11.2026 12:00",
+      ", отозвано с 27.11.2026 17:00",
     );
-    expect(savedPermission("s1")).toMatchObject({ revokedAt: "2026-11-27T12:00" });
+    expect(savedPermission("s1")).toMatchObject({ revokedAt: "2026-11-27T12:00Z" });
   });
 
   it("если и момент проверки пуст, берёт текущую минуту", () => {
@@ -500,8 +544,8 @@ describe("отзыв разрешения с момента: договор «С
         id: "s2",
         subject: { type: "user", id: "vera" },
         serviceId: "ledger",
-        startsAt: "2026-11-25T09:00",
-        expiresAt: "2026-12-10T18:00",
+        startsAt: "2026-11-25T04:00Z",
+        expiresAt: "2026-12-10T13:00Z",
       },
     ]);
     await pick("Вера Лисицына", "Учёт");

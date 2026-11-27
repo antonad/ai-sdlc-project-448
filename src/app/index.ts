@@ -3,7 +3,7 @@ import { calculateAccess } from "../domain/access";
 import type { AccessResult } from "../domain/access";
 import type { Config, Subject } from "../domain/model";
 import { exportConfig, parseConfigFile } from "./config-file";
-import { intervalError, momentToDate } from "./dates";
+import { intervalError, isValidMoment, isValidUtcMoment, localToUtc, momentToDate } from "./dates";
 import {
   addPermission,
   normalizeInterval,
@@ -32,7 +32,7 @@ export type Simulator = {
   /** Удаляет разрешение целиком: после этого симулятор не помнит, что доступ был. */
   revokePermission: (permissionId: string) => void;
   /**
-   * Отзывает разрешение с момента `ГГГГ-ММ-ДДTчч:мм` (первая минута без доступа): момент
+   * Отзывает разрешение с локального момента `ГГГГ-ММ-ДДTчч:мм` (первая минута без доступа): момент
    * становится `expiresAt`, время до него остаётся в проверке. При отказе конфигурацию не меняет.
    */
   revokePermissionFrom: (permissionId: string, moment: string) => RevokeFromResult;
@@ -57,11 +57,21 @@ export const useSimulator = (): Simulator => {
     checkAccess: (userId, serviceId, atMoment) =>
       calculateAccess(config, { userId, serviceId, at: momentToDate(atMoment) }),
     grantPermission: (subject, serviceId, interval) => {
+      // Компонент отдаёт локальное время полей, в данные оно попадает в UTC.
       const bounds = normalizeInterval(interval);
       if (intervalError(bounds.startsAt, bounds.expiresAt)) {
         return "invalid-interval";
       }
-      const next = addPermission(config, subject, serviceId, bounds);
+      const utc = {
+        ...(bounds.startsAt === undefined ? {} : { startsAt: localToUtc(bounds.startsAt) }),
+        ...(bounds.expiresAt === undefined ? {} : { expiresAt: localToUtc(bounds.expiresAt) }),
+      };
+      // После перевода порядок и годы проверяются заново: переход на летнее время и края
+      // диапазона лет могут дать UTC-значение, которое файл не примет обратно.
+      if (intervalError(utc.startsAt, utc.expiresAt, isValidUtcMoment)) {
+        return "invalid-interval";
+      }
+      const next = addPermission(config, subject, serviceId, utc);
       if (next === config) {
         return "exists";
       }
@@ -70,7 +80,10 @@ export const useSimulator = (): Simulator => {
     },
     revokePermission: (permissionId) => replace(removePermission(config, permissionId)),
     revokePermissionFrom: (permissionId, moment) => {
-      const outcome = revokePermissionFrom(config, permissionId, moment);
+      if (!isValidMoment(moment)) {
+        return "invalid-moment";
+      }
+      const outcome = revokePermissionFrom(config, permissionId, localToUtc(moment));
       if (outcome.result === "revoked") {
         replace(outcome.config);
       }

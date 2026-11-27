@@ -1,5 +1,5 @@
 import type { Config, Subject } from "../domain/model";
-import { isValidMoment } from "./dates";
+import { isValidUtcMoment } from "./dates";
 
 const sameSubject = (left: Subject, right: Subject): boolean =>
   left.type === right.type && left.id === right.id;
@@ -13,7 +13,7 @@ const nextPermissionId = (config: Config): string => {
   return `p${number}`;
 };
 
-/** Срок разрешения: необязательные моменты `ГГГГ-ММ-ДДTчч:мм`, начало включительно, окончание исключительно. */
+/** Срок разрешения: необязательные моменты UTC `ГГГГ-ММ-ДДTчч:ммZ`, начало включительно, окончание исключительно. */
 export type Interval = { startsAt?: string; expiresAt?: string };
 
 /** Пустая строка и пробелы значат «граница не задана». */
@@ -80,7 +80,7 @@ export type RevokeFromResult =
   | "already-ended";
 
 /**
- * Отзывает разрешение с интервалом с момента `moment` (`ГГГГ-ММ-ДДTчч:мм`): момент — первая
+ * Отзывает разрешение с интервалом с момента `moment` (UTC, `ГГГГ-ММ-ДДTчч:ммZ`): момент — первая
  * минута без доступа, он записывается в `revokedAt`, срок остаётся прежним. Меняет ровно одно
  * разрешение.
  */
@@ -90,7 +90,7 @@ export const revokePermissionFrom = (
   moment: string,
 ): { config: Config; result: RevokeFromResult } => {
   const refuse = (result: RevokeFromResult) => ({ config, result });
-  if (!isValidMoment(moment)) {
+  if (!isValidUtcMoment(moment)) {
     return refuse("invalid-moment");
   }
   const target = config.permissions.find(({ id }) => id === permissionId);

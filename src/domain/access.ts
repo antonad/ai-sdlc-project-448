@@ -17,7 +17,7 @@ export type InactiveReason = "not-started" | "expired" | "revoked";
 /** Подходящее сотруднику и сервису разрешение, которое не действует в момент расчёта. */
 export type InactivePermission = AccessSource & {
   reason: InactiveReason;
-  /** Граница срока (`ГГГГ-ММ-ДДTчч:мм`), из-за которой разрешение не действует. */
+  /** Граница срока (`ГГГГ-ММ-ДДTчч:ммZ`), из-за которой разрешение не действует. */
   boundary: string;
 };
 
@@ -27,15 +27,11 @@ export type AccessResult = {
   inactive: InactivePermission[];
 };
 
-const pad = (value: number, length: number) => String(value).padStart(length, "0");
-
 /**
- * Минута момента `at` по локальному часовому поясу, `ГГГГ-ММ-ДДTчч:мм`: секунды отбрасываются.
+ * Минута мгновения `at` в UTC, `ГГГГ-ММ-ДДTчч:ммZ`: секунды отбрасываются, часовой пояс не влияет.
  * Строки одного формата сравнимы как текст.
  */
-const minuteKey = (at: Date) =>
-  `${pad(at.getFullYear(), 4)}-${pad(at.getMonth() + 1, 2)}-${pad(at.getDate(), 2)}` +
-  `T${pad(at.getHours(), 2)}:${pad(at.getMinutes(), 2)}`;
+const minuteKey = (at: Date) => `${at.toISOString().slice(0, 16)}Z`;
 
 /** Причина, по которой разрешение не действует в минуту `key`, или `undefined`, если действует. Интервал `[startsAt, expiresAt)`, отзыв `revokedAt` обрывает его раньше. */
 const inactivity = (

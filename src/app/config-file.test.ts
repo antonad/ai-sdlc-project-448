@@ -172,35 +172,38 @@ describe("проверка файла импорта", () => {
   });
 });
 
-describe("срок разрешения в файле версии 3", () => {
+const HINT_V4 = "момент в формате ГГГГ-ММ-ДДTчч:ммZ";
+const HINT_V3 = "момент в формате ГГГГ-ММ-ДДTчч:мм";
+
+describe("срок разрешения в файле версии 4 (UTC)", () => {
   const withTerms: Config = {
     ...seedConfig,
     permissions: [
       {
         ...seedConfig.permissions[0],
-        startsAt: "2026-12-01T09:00",
-        expiresAt: "2026-12-14T18:30",
+        startsAt: "2026-12-01T09:00Z",
+        expiresAt: "2026-12-14T18:30Z",
       },
-      { ...seedConfig.permissions[1], startsAt: "2026-12-01T09:00" },
-      { ...seedConfig.permissions[2], expiresAt: "2026-12-14T18:30" },
+      { ...seedConfig.permissions[1], startsAt: "2026-12-01T09:00Z" },
+      { ...seedConfig.permissions[2], expiresAt: "2026-12-14T18:30Z" },
       ...seedConfig.permissions.slice(3),
     ],
   };
 
-  it("пишет в экспорт версию 3", () => {
-    expect(CONFIG_VERSION).toBe(3);
-    expect(JSON.parse(exportConfig(seedConfig)).version).toBe(3);
+  it("пишет в экспорт версию 4", () => {
+    expect(CONFIG_VERSION).toBe(4);
+    expect(JSON.parse(exportConfig(seedConfig)).version).toBe(4);
   });
 
-  it("возвращает постоянное, интервальное и одностороннее разрешения после круга", () => {
-    const result = parseConfigFile(exportConfig(withTerms));
+  it("пишет моменты с суффиксом Z и возвращает их после круга", () => {
+    const text = exportConfig(withTerms);
+    const file = JSON.parse(text);
+    const result = parseConfigFile(text);
     const permissions = result.ok ? result.config.permissions : [];
 
+    expect(file.permissions[0].startsAt).toBe("2026-12-01T09:00Z");
+    expect(file.permissions[0].expiresAt).toBe("2026-12-14T18:30Z");
     expect(result).toEqual({ ok: true, config: withTerms });
-    expect(permissions[0]).toMatchObject({
-      startsAt: "2026-12-01T09:00",
-      expiresAt: "2026-12-14T18:30",
-    });
     expect(permissions[1]).not.toHaveProperty("expiresAt");
     expect(permissions[2]).not.toHaveProperty("startsAt");
     expect(permissions[3]).not.toHaveProperty("startsAt");
@@ -214,72 +217,70 @@ describe("срок разрешения в файле версии 3", () => {
     expect(file.permissions[0]).not.toHaveProperty("expiresAt");
   });
 
-  it("отвергает версию 4", () => {
-    expect(errorsOf(parseWith((file) => (file.version = 4)))).toEqual([
-      "Версия формата 4 новее поддерживаемой 3",
+  it("отвергает версию 5", () => {
+    expect(errorsOf(parseWith((file) => (file.version = 5)))).toEqual([
+      "Версия формата 5 новее поддерживаемой 4",
     ]);
+  });
+
+  it("отвергает момент без Z с указанием места", () => {
+    const start = errorsOf(
+      parseWith((file) => (file.permissions[0].startsAt = "2026-12-01T09:00")),
+    );
+    const end = errorsOf(parseWith((file) => (file.permissions[1].expiresAt = "2026-12-14T18:30")));
+
+    expect(start).toEqual([`permissions[0].startsAt: нужен реальный ${HINT_V4}`]);
+    expect(end).toEqual([`permissions[1].expiresAt: нужен реальный ${HINT_V4}`]);
   });
 
   it("отвергает несуществующий момент с указанием места", () => {
-    const day = errorsOf(parseWith((file) => (file.permissions[1].expiresAt = "2026-02-30T10:00")));
-    const hour = errorsOf(parseWith((file) => (file.permissions[2].startsAt = "2026-03-01T25:00")));
+    const day = errorsOf(
+      parseWith((file) => (file.permissions[1].expiresAt = "2026-02-30T10:00Z")),
+    );
+    const hour = errorsOf(
+      parseWith((file) => (file.permissions[2].startsAt = "2026-03-01T25:00Z")),
+    );
 
-    expect(day).toEqual([
-      "permissions[1].expiresAt: нужен реальный момент в формате ГГГГ-ММ-ДДTчч:мм",
-    ]);
-    expect(hour).toEqual([
-      "permissions[2].startsAt: нужен реальный момент в формате ГГГГ-ММ-ДДTчч:мм",
-    ]);
+    expect(day).toEqual([`permissions[1].expiresAt: нужен реальный ${HINT_V4}`]);
+    expect(hour).toEqual([`permissions[2].startsAt: нужен реальный ${HINT_V4}`]);
   });
 
-  it("отвергает момент без времени и в чужом формате", () => {
+  it("отвергает момент без времени, в чужом формате и не строку", () => {
     const dateOnly = errorsOf(parseWith((file) => (file.permissions[0].startsAt = "2026-03-01")));
     const dotted = errorsOf(
       parseWith((file) => (file.permissions[0].expiresAt = "01.03.2026 09:00")),
     );
+    const notString = errorsOf(parseWith((file) => (file.permissions[0].startsAt = 202612010900)));
+    const empty = errorsOf(parseWith((file) => (file.permissions[0].expiresAt = null)));
 
-    expect(dateOnly).toEqual([
-      "permissions[0].startsAt: нужен реальный момент в формате ГГГГ-ММ-ДДTчч:мм",
-    ]);
-    expect(dotted).toEqual([
-      "permissions[0].expiresAt: нужен реальный момент в формате ГГГГ-ММ-ДДTчч:мм",
-    ]);
+    expect(dateOnly).toEqual([`permissions[0].startsAt: нужен реальный ${HINT_V4}`]);
+    expect(dotted).toEqual([`permissions[0].expiresAt: нужен реальный ${HINT_V4}`]);
+    expect(notString[0]).toMatch(/^permissions\[0\]\.startsAt: /);
+    expect(empty[0]).toMatch(/^permissions\[0\]\.expiresAt: /);
   });
 
-  it("отвергает значение не строкой", () => {
-    const start = errorsOf(parseWith((file) => (file.permissions[0].startsAt = 202612010900)));
-    const end = errorsOf(parseWith((file) => (file.permissions[0].expiresAt = null)));
-
-    expect(start[0]).toMatch(/^permissions\[0\]\.startsAt: /);
-    expect(end[0]).toMatch(/^permissions\[0\]\.expiresAt: /);
-  });
-
-  it("отвергает окончание раньше начала с указанием разрешения", () => {
-    const errors = errorsOf(
+  it("отвергает окончание раньше начала и равное началу", () => {
+    const earlier = errorsOf(
       parseWith((file) => {
-        file.permissions[3].startsAt = "2026-12-14T10:00";
-        file.permissions[3].expiresAt = "2026-12-14T09:59";
+        file.permissions[3].startsAt = "2026-12-14T10:00Z";
+        file.permissions[3].expiresAt = "2026-12-14T09:59Z";
+      }),
+    );
+    const equal = errorsOf(
+      parseWith((file) => {
+        file.permissions[0].startsAt = "2026-12-10T12:00Z";
+        file.permissions[0].expiresAt = "2026-12-10T12:00Z";
       }),
     );
 
-    expect(errors).toEqual(["permissions[3]: окончание должно быть позже начала"]);
-  });
-
-  it("отвергает окончание, равное началу", () => {
-    const errors = errorsOf(
-      parseWith((file) => {
-        file.permissions[0].startsAt = "2026-12-10T12:00";
-        file.permissions[0].expiresAt = "2026-12-10T12:00";
-      }),
-    );
-
-    expect(errors).toEqual(["permissions[0]: окончание должно быть позже начала"]);
+    expect(earlier).toEqual(["permissions[3]: окончание должно быть позже начала"]);
+    expect(equal).toEqual(["permissions[0]: окончание должно быть позже начала"]);
   });
 
   it("принимает окончание на минуту позже начала", () => {
     const result = parseWith((file) => {
-      file.permissions[0].startsAt = "2026-12-10T12:00";
-      file.permissions[0].expiresAt = "2026-12-10T12:01";
+      file.permissions[0].startsAt = "2026-12-10T12:00Z";
+      file.permissions[0].expiresAt = "2026-12-10T12:01Z";
     });
 
     expect(result.ok).toBe(true);
@@ -288,8 +289,8 @@ describe("срок разрешения в файле версии 3", () => {
   it("при невалидном моменте сообщает только ошибку поля, без ошибки пары", () => {
     const errors = errorsOf(
       parseWith((file) => {
-        file.permissions[3].startsAt = "2026-13-40T10:00";
-        file.permissions[3].expiresAt = "2026-12-01T10:00";
+        file.permissions[3].startsAt = "2026-13-40T10:00Z";
+        file.permissions[3].expiresAt = "2026-12-01T10:00Z";
       }),
     );
 
@@ -300,7 +301,7 @@ describe("срок разрешения в файле версии 3", () => {
   it("не смешивает ошибку момента и битую ссылку: ссылки проверяются после исправления формы", () => {
     const errors = errorsOf(
       parseWith((file) => {
-        file.permissions[0].expiresAt = "2026-02-30T10:00";
+        file.permissions[0].expiresAt = "2026-02-30T10:00Z";
         file.permissions[1].serviceId = "vault";
       }),
     );
@@ -309,13 +310,80 @@ describe("срок разрешения в файле версии 3", () => {
     expect(errors[0]).toMatch(/^permissions\[0\]\.expiresAt: /);
   });
 
-  it("игнорирует в версии 3 старые поля дней", () => {
+  it("игнорирует в версии 4 старые поля дней", () => {
     const result = parseWith((file) => {
       file.permissions[0].startsOn = "2026-12-14";
       file.permissions[0].endsOn = "не день";
     });
 
     expect(result).toEqual({ ok: true, config: seedConfig });
+  });
+});
+
+describe("файл версии 3: моменты без пояса читаются как UTC", () => {
+  const v3 = (terms: Record<string, unknown>[]) =>
+    JSON.stringify({
+      version: 3,
+      ...seedConfig,
+      permissions: seedConfig.permissions.map((permission, index) => ({
+        ...permission,
+        ...terms[index],
+      })),
+    });
+
+  const permissionsOf = (text: string) => {
+    const result = parseConfigFile(text);
+    return result.ok ? result.config.permissions : [];
+  };
+
+  it("добавляет Z и не сдвигает значения в поясе UTC+5", () => {
+    const permissions = permissionsOf(
+      v3([
+        { startsAt: "2026-12-01T09:00", expiresAt: "2026-12-14T18:30" },
+        { startsAt: "2026-12-01T09:00" },
+        { expiresAt: "2026-12-14T18:30" },
+      ]),
+    );
+
+    expect(permissions[0]).toMatchObject({
+      startsAt: "2026-12-01T09:00Z",
+      expiresAt: "2026-12-14T18:30Z",
+    });
+    expect(permissions[1]).toMatchObject({ startsAt: "2026-12-01T09:00Z" });
+    expect(permissions[1]).not.toHaveProperty("expiresAt");
+    expect(permissions[2]).toMatchObject({ expiresAt: "2026-12-14T18:30Z" });
+    expect(permissions[2]).not.toHaveProperty("startsAt");
+    expect(permissions[3]).toEqual(seedConfig.permissions[3]);
+  });
+
+  it("доступ считается по UTC, а не по местному времени", () => {
+    const config: Config = {
+      ...seedConfig,
+      permissions: permissionsOf(v3([{ startsAt: "2026-12-01T09:00" }])).slice(0, 1),
+    };
+    const access = (at: Date) =>
+      calculateAccess(config, { userId: "anna", serviceId: "ledger", at });
+
+    expect(access(new Date("2026-12-01T09:00Z")).granted).toBe(true);
+    expect(access(new Date("2026-12-01T08:59Z")).granted).toBe(false);
+  });
+
+  it("отвергает ошибки момента со старой подсказкой без Z", () => {
+    const day = errorsOf(parseConfigFile(v3([{}, { expiresAt: "2026-02-30T10:00" }])));
+    const withZone = errorsOf(parseConfigFile(v3([{ startsAt: "2026-12-01T09:00Z" }])));
+    const notString = errorsOf(parseConfigFile(v3([{ expiresAt: null }])));
+
+    expect(day).toEqual([`permissions[1].expiresAt: нужен реальный ${HINT_V3}`]);
+    expect(withZone).toEqual([`permissions[0].startsAt: нужен реальный ${HINT_V3}`]);
+    expect(notString[0]).toMatch(/^permissions\[0\]\.expiresAt: /);
+  });
+
+  it("отвергает окончание не позже начала", () => {
+    const errors = errorsOf(
+      parseConfigFile(v3([{ startsAt: "2026-12-10T12:00", expiresAt: "2026-12-10T12:00" }])),
+    );
+
+    expect(errors).toEqual(["permissions[0]: окончание должно быть позже начала"]);
   });
 });
 
@@ -341,7 +409,7 @@ describe("файлы версий 1 и 2", () => {
     expect(result).toEqual({ ok: true, config: seedConfig });
   });
 
-  it("переводит дни версии 2 в моменты: начало в 00:00, окончание на начало следующего дня", () => {
+  it("переводит дни версии 1-2 в моменты UTC: начало в T00:00Z, окончание на начало следующего дня", () => {
     const permissions = permissionsOf(
       legacy(2, [
         { startsOn: "2026-12-01", endsOn: "2026-12-14" },
@@ -351,48 +419,58 @@ describe("файлы версий 1 и 2", () => {
     );
 
     expect(permissions[0]).toMatchObject({
-      startsAt: "2026-12-01T00:00",
-      expiresAt: "2026-12-15T00:00",
+      startsAt: "2026-12-01T00:00Z",
+      expiresAt: "2026-12-15T00:00Z",
     });
     expect(permissions[0]).not.toHaveProperty("startsOn");
     expect(permissions[0]).not.toHaveProperty("endsOn");
-    expect(permissions[1]).toMatchObject({ startsAt: "2026-12-01T00:00" });
+    expect(permissions[1]).toMatchObject({ startsAt: "2026-12-01T00:00Z" });
     expect(permissions[1]).not.toHaveProperty("expiresAt");
-    expect(permissions[2]).toMatchObject({ expiresAt: "2026-12-15T00:00" });
+    expect(permissions[2]).toMatchObject({ expiresAt: "2026-12-15T00:00Z" });
     expect(permissions[2]).not.toHaveProperty("startsAt");
     expect(permissions[3]).toEqual(seedConfig.permissions[3]);
   });
 
-  it("переводит окончание на границе месяца и года", () => {
+  it("переводит окончание на границе месяца, года и 29 февраля", () => {
     const permissions = permissionsOf(
       legacy(2, [{ endsOn: "2026-12-31" }, { endsOn: "2026-02-28" }, { endsOn: "2028-02-29" }]),
     );
 
-    expect(permissions[0].expiresAt).toBe("2027-01-01T00:00");
-    expect(permissions[1].expiresAt).toBe("2026-03-01T00:00");
-    expect(permissions[2].expiresAt).toBe("2028-03-01T00:00");
+    expect(permissions[0].expiresAt).toBe("2027-01-01T00:00Z");
+    expect(permissions[1].expiresAt).toBe("2026-03-01T00:00Z");
+    expect(permissions[2].expiresAt).toBe("2028-03-01T00:00Z");
   });
 
-  it("не меняет доступ после перевода: 14.12.2026 23:59 доступ есть, 15.12.2026 00:00 нет", () => {
+  it("не меняет доступ после перевода: весь 14.12.2026 по UTC доступ есть, с 2026-12-15T00:00Z нет", () => {
     const text = legacy(2, [{ startsOn: "2026-12-01", endsOn: "2026-12-14" }]);
     const parsed = parseConfigFile(text);
     const config: Config = parsed.ok ? parsed.config : seedConfig;
     const only: Config = { ...config, permissions: config.permissions.slice(0, 1) };
-    const access = (at: Date) => calculateAccess(only, { userId: "anna", serviceId: "ledger", at });
+    const access = (at: string) =>
+      calculateAccess(only, { userId: "anna", serviceId: "ledger", at: new Date(at) });
 
-    expect(access(new Date(2026, 11, 14, 23, 59)).granted).toBe(true);
-    expect(access(new Date(2026, 11, 15, 0, 0)).granted).toBe(false);
-    expect(access(new Date(2026, 11, 1, 0, 0)).granted).toBe(true);
-    expect(access(new Date(2026, 10, 30, 23, 59)).granted).toBe(false);
+    expect(access("2026-12-14T00:00Z").granted).toBe(true);
+    expect(access("2026-12-14T23:59Z").granted).toBe(true);
+    expect(access("2026-12-15T00:00Z").granted).toBe(false);
+    expect(access("2026-12-01T00:00Z").granted).toBe(true);
+    expect(access("2026-11-30T23:59Z").granted).toBe(false);
   });
 
   it("читает в версии 2 только поля дней и игнорирует поля моментов", () => {
     const permissions = permissionsOf(
-      legacy(2, [{ endsOn: "2026-12-14", startsAt: "ерунда", expiresAt: "2020-01-01T00:00" }]),
+      legacy(2, [{ endsOn: "2026-12-14", startsAt: "ерунда", expiresAt: "2020-01-01T00:00Z" }]),
     );
 
-    expect(permissions[0]).toMatchObject({ expiresAt: "2026-12-15T00:00" });
+    expect(permissions[0]).toMatchObject({ expiresAt: "2026-12-15T00:00Z" });
     expect(permissions[0]).not.toHaveProperty("startsAt");
+  });
+
+  it("версия 1 игнорирует поля моментов", () => {
+    const permissions = permissionsOf(
+      legacy(1, [{ startsAt: "ерунда", expiresAt: "2020-01-01T00:00Z" }]),
+    );
+
+    expect(permissions[0]).toEqual(seedConfig.permissions[0]);
   });
 
   it("отвергает несуществующий день в версиях 1 и 2 со старым текстом ошибки", () => {
@@ -426,40 +504,40 @@ describe("файлы версий 1 и 2", () => {
     );
 
     expect(permissions[0]).toMatchObject({
-      startsAt: "2026-12-10T00:00",
-      expiresAt: "2026-12-11T00:00",
+      startsAt: "2026-12-10T00:00Z",
+      expiresAt: "2026-12-11T00:00Z",
     });
   });
 });
 
-describe("отзыв разрешения в файле версии 3", () => {
+describe("отзыв разрешения в файле версии 4", () => {
   const withRevoke: Config = {
     ...seedConfig,
     permissions: [
-      { ...seedConfig.permissions[0], revokedAt: "2026-12-10T12:00" },
+      { ...seedConfig.permissions[0], revokedAt: "2026-12-10T12:00Z" },
       {
         ...seedConfig.permissions[1],
-        startsAt: "2026-12-01T09:00",
-        expiresAt: "2026-12-14T18:30",
-        revokedAt: "2026-12-10T12:00",
+        startsAt: "2026-12-01T09:00Z",
+        expiresAt: "2026-12-14T18:30Z",
+        revokedAt: "2026-12-10T12:00Z",
       },
       ...seedConfig.permissions.slice(2),
     ],
   };
 
-  it("возвращает отзыв после круга экспорта и импорта, версия остаётся 3", () => {
+  it("возвращает отзыв после круга экспорта и импорта, версия 4", () => {
     const text = exportConfig(withRevoke);
     const result = parseConfigFile(text);
 
-    expect(JSON.parse(text).version).toBe(3);
-    expect(CONFIG_VERSION).toBe(3);
+    expect(JSON.parse(text).version).toBe(4);
+    expect(JSON.parse(text).permissions[0].revokedAt).toBe("2026-12-10T12:00Z");
     expect(result).toEqual({ ok: true, config: withRevoke });
     expect(JSON.parse(text).permissions[2]).not.toHaveProperty("revokedAt");
   });
 
-  it("читает прежний файл версии 3 без revokedAt", () => {
+  it("читает файл версии 4 без revokedAt", () => {
     const result = parseWith((file) => {
-      file.permissions[0].startsAt = "2026-12-01T09:00";
+      file.permissions[0].startsAt = "2026-12-01T09:00Z";
     });
 
     expect(result.ok).toBe(true);
@@ -467,33 +545,45 @@ describe("отзыв разрешения в файле версии 3", () => {
     expect(permissions[0]).not.toHaveProperty("revokedAt");
   });
 
-  it("отвергает несуществующий момент отзыва с указанием места", () => {
-    const day = errorsOf(parseWith((file) => (file.permissions[1].revokedAt = "2026-02-30T10:00")));
+  it("читает отзыв версии 3 как UTC", () => {
+    const result = parseWith((file) => {
+      file.version = 3;
+      file.permissions[0].revokedAt = "2026-12-10T12:00";
+    });
+    const permissions = result.ok ? result.config.permissions : [];
+
+    expect(permissions[0].revokedAt).toBe("2026-12-10T12:00Z");
+  });
+
+  it("отвергает неверный момент отзыва с указанием места", () => {
+    const day = errorsOf(
+      parseWith((file) => (file.permissions[1].revokedAt = "2026-02-30T10:00Z")),
+    );
+    const noZone = errorsOf(
+      parseWith((file) => (file.permissions[0].revokedAt = "2026-12-10T12:00")),
+    );
     const wrongFormat = errorsOf(
       parseWith((file) => (file.permissions[0].revokedAt = "10.12.2026 12:00")),
     );
     const notString = errorsOf(parseWith((file) => (file.permissions[2].revokedAt = null)));
 
-    expect(day).toEqual([
-      "permissions[1].revokedAt: нужен реальный момент в формате ГГГГ-ММ-ДДTчч:мм",
-    ]);
-    expect(wrongFormat).toEqual([
-      "permissions[0].revokedAt: нужен реальный момент в формате ГГГГ-ММ-ДДTчч:мм",
-    ]);
+    expect(day).toEqual([`permissions[1].revokedAt: нужен реальный ${HINT_V4}`]);
+    expect(noZone).toEqual([`permissions[0].revokedAt: нужен реальный ${HINT_V4}`]);
+    expect(wrongFormat).toEqual([`permissions[0].revokedAt: нужен реальный ${HINT_V4}`]);
     expect(notString[0]).toMatch(/^permissions\[2\]\.revokedAt: /);
   });
 
   it("отвергает отзыв не позже начала, равный и ранний", () => {
     const equal = errorsOf(
       parseWith((file) => {
-        file.permissions[0].startsAt = "2026-12-10T12:00";
-        file.permissions[0].revokedAt = "2026-12-10T12:00";
+        file.permissions[0].startsAt = "2026-12-10T12:00Z";
+        file.permissions[0].revokedAt = "2026-12-10T12:00Z";
       }),
     );
     const earlier = errorsOf(
       parseWith((file) => {
-        file.permissions[0].startsAt = "2026-12-10T12:00";
-        file.permissions[0].revokedAt = "2026-12-10T11:59";
+        file.permissions[0].startsAt = "2026-12-10T12:00Z";
+        file.permissions[0].revokedAt = "2026-12-10T11:59Z";
       }),
     );
 
@@ -504,14 +594,14 @@ describe("отзыв разрешения в файле версии 3", () => {
   it("отвергает отзыв не раньше окончания, равный и поздний", () => {
     const equal = errorsOf(
       parseWith((file) => {
-        file.permissions[1].expiresAt = "2026-12-14T18:00";
-        file.permissions[1].revokedAt = "2026-12-14T18:00";
+        file.permissions[1].expiresAt = "2026-12-14T18:00Z";
+        file.permissions[1].revokedAt = "2026-12-14T18:00Z";
       }),
     );
     const later = errorsOf(
       parseWith((file) => {
-        file.permissions[1].expiresAt = "2026-12-14T18:00";
-        file.permissions[1].revokedAt = "2026-12-14T18:01";
+        file.permissions[1].expiresAt = "2026-12-14T18:00Z";
+        file.permissions[1].revokedAt = "2026-12-14T18:01Z";
       }),
     );
 
@@ -521,9 +611,9 @@ describe("отзыв разрешения в файле версии 3", () => {
 
   it("принимает отзыв на минуту позже начала и на минуту раньше окончания", () => {
     const result = parseWith((file) => {
-      file.permissions[0].startsAt = "2026-12-10T12:00";
-      file.permissions[0].expiresAt = "2026-12-10T12:02";
-      file.permissions[0].revokedAt = "2026-12-10T12:01";
+      file.permissions[0].startsAt = "2026-12-10T12:00Z";
+      file.permissions[0].expiresAt = "2026-12-10T12:02Z";
+      file.permissions[0].revokedAt = "2026-12-10T12:01Z";
     });
 
     expect(result.ok).toBe(true);
@@ -532,8 +622,8 @@ describe("отзыв разрешения в файле версии 3", () => {
   it("при неверном моменте отзыва не добавляет ошибку границ", () => {
     const errors = errorsOf(
       parseWith((file) => {
-        file.permissions[0].startsAt = "2026-12-10T12:00";
-        file.permissions[0].revokedAt = "2026-13-40T10:00";
+        file.permissions[0].startsAt = "2026-12-10T12:00Z";
+        file.permissions[0].revokedAt = "2026-13-40T10:00Z";
       }),
     );
 
@@ -556,7 +646,7 @@ describe("отзыв разрешения в файле версии 3", () => {
   it("версия 1 игнорирует revokedAt", () => {
     const result = parseWith((file) => {
       file.version = 1;
-      file.permissions[0].revokedAt = "2026-12-10T12:00";
+      file.permissions[0].revokedAt = "2026-12-10T12:00Z";
     });
 
     expect(result).toEqual({ ok: true, config: seedConfig });

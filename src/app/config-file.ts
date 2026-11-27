@@ -1,27 +1,33 @@
 import type { Config, Group, Permission, Service, User } from "../domain/model";
-import { intervalError, isValidDate, isValidMoment, startOfDay, startOfNextDay } from "./dates";
+import {
+  intervalError,
+  isValidDate,
+  isValidMoment,
+  isValidUtcMoment,
+  startOfDay,
+  startOfNextDay,
+} from "./dates";
 
 // Формат файла конфигурации (JSON, одинаковый для экспорта, импорта и хранения в браузере):
 //   {
-//     "version": 3,                                   целое число
+//     "version": 4,                                   целое число
 //     "users": [{ "id", "name", "groupIds": [groupId] }],
 //     "groups": [{ "id", "name" }],
 //     "services": [{ "id", "name" }],
 //     "permissions": [{ "id", "subject": { "type": "user" | "group", "id" }, "serviceId",
-//                       "startsAt"?: "ГГГГ-ММ-ДДTчч:мм", "expiresAt"?: "ГГГГ-ММ-ДДTчч:мм",
-//                       "revokedAt"?: "ГГГГ-ММ-ДДTчч:мм" }]
+//                       "startsAt"?: "ГГГГ-ММ-ДДTчч:ммZ", "expiresAt"?: "ГГГГ-ММ-ДДTчч:ммZ",
+//                       "revokedAt"?: "ГГГГ-ММ-ДДTчч:ммZ" }]
 //   }
 // Идентификаторы внутри списка уникальны. Разрешения и участие в группах ссылаются на
 // существующие записи, иначе файл отвергается целиком. Неизвестные поля игнорируются: новые
 // поля добавляются как необязательные, версия растёт только при несовместимой правке.
-// Версия 3: срок разрешения — моменты `startsAt` (включительно) и `expiresAt` (исключительно),
+// Версия 4: срок разрешения — моменты в UTC `startsAt` (включительно) и `expiresAt` (исключительно),
 // любая граница может отсутствовать; необязательный `revokedAt` — момент отзыва, строго внутри
-// интервала, версия не растёт. Версия 2 хранила дни `startsOn` и `endsOn` (обе границы
-// включительные): при чтении `startsOn` становится началом того же дня, а `endsOn` — началом
-// следующего, поэтому доступ не меняется. Файлы версии 1 принимаются: все их разрешения
-// постоянные.
-
-export const CONFIG_VERSION = 3;
+// интервала. Версия 3 хранила те же моменты без пояса: при чтении к ним добавляется `Z`, то есть
+// они читаются как UTC. Версия 2 хранила дни `startsOn` и `endsOn` (обе границы включительные):
+// `startsOn` становится началом того же дня в UTC, а `endsOn` — началом следующего дня в UTC.
+// Файлы версии 1 принимаются: все их разрешения постоянные.
+export const CONFIG_VERSION = 4;
 
 export type ParseResult = { ok: true; config: Config } | { ok: false; errors: string[] };
 
@@ -115,7 +121,7 @@ const readOptionalText = (
   return value;
 };
 
-/** Срок разрешения версии 3 (моменты) или более старой версии (дни, переводятся в моменты). */
+/** Срок разрешения версии 4 (UTC), версии 3 (моменты без пояса как UTC) или версий 1–2 (дни). */
 const readInterval = (
   item: Json,
   version: number,
@@ -125,11 +131,17 @@ const readInterval = (
   let startsAt: string | undefined;
   let expiresAt: string | undefined;
   let revokedAt: string | undefined;
-  if (version >= 3) {
+  if (version >= 4) {
+    const hint = "момент в формате ГГГГ-ММ-ДДTчч:ммZ";
+    startsAt = readOptionalText(item, "startsAt", isValidUtcMoment, hint, where, errors);
+    expiresAt = readOptionalText(item, "expiresAt", isValidUtcMoment, hint, where, errors);
+    revokedAt = readOptionalText(item, "revokedAt", isValidUtcMoment, hint, where, errors);
+  } else if (version === 3) {
     const hint = "момент в формате ГГГГ-ММ-ДДTчч:мм";
-    startsAt = readOptionalText(item, "startsAt", isValidMoment, hint, where, errors);
-    expiresAt = readOptionalText(item, "expiresAt", isValidMoment, hint, where, errors);
-    revokedAt = readOptionalText(item, "revokedAt", isValidMoment, hint, where, errors);
+    const withZone = (value: string | undefined) => (value === undefined ? undefined : `${value}Z`);
+    startsAt = withZone(readOptionalText(item, "startsAt", isValidMoment, hint, where, errors));
+    expiresAt = withZone(readOptionalText(item, "expiresAt", isValidMoment, hint, where, errors));
+    revokedAt = withZone(readOptionalText(item, "revokedAt", isValidMoment, hint, where, errors));
   } else {
     const hint = "день в формате ГГГГ-ММ-ДД";
     const startsOn = readOptionalText(item, "startsOn", isValidDate, hint, where, errors);
@@ -139,7 +151,7 @@ const readInterval = (
   }
   // Пару сверяем, только если обе границы сами валидны, чтобы одна опечатка не давала вторую ошибку.
   if (startsAt !== undefined && expiresAt !== undefined) {
-    const pairError = intervalError(startsAt, expiresAt);
+    const pairError = intervalError(startsAt, expiresAt, isValidUtcMoment);
     if (pairError) {
       errors.push(`${where}: ${pairError.charAt(0).toLowerCase()}${pairError.slice(1)}`);
     }
