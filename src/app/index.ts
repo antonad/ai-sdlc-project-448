@@ -3,7 +3,7 @@ import { calculateAccess } from "../domain/access";
 import type { AccessResult } from "../domain/access";
 import type { Config, Subject } from "../domain/model";
 import { exportConfig, parseConfigFile } from "./config-file";
-import { dateToDay, intervalError } from "./dates";
+import { intervalError, momentToDate } from "./dates";
 import {
   addPermission,
   normalizeInterval,
@@ -13,7 +13,7 @@ import {
 import type { Interval, RevokeFromResult } from "./permissions";
 import { loadConfig, saveConfig } from "./storage";
 
-export { formatDate, formatInterval, todayDay } from "./dates";
+export { formatInterval, formatMoment, nowMoment } from "./dates";
 export { usersInGroup } from "./users";
 
 export type { AccessResult, AccessSource, InactivePermission } from "../domain/access";
@@ -25,17 +25,17 @@ export type ImportResult = { ok: true } | { ok: false; errors: string[] };
 
 export type Simulator = {
   config: Config;
-  /** `onDate` — день `ГГГГ-ММ-ДД`; пустая или невалидная строка значит «сегодня». */
-  checkAccess: (userId: string, serviceId: string, onDate?: string) => AccessResult;
+  /** `atMoment` — момент `ГГГГ-ММ-ДДTчч:мм`; пустая или невалидная строка значит «сейчас». */
+  checkAccess: (userId: string, serviceId: string, atMoment?: string) => AccessResult;
   /** Выдаёт постоянное разрешение или разрешение на интервал. Неверный интервал конфигурацию не меняет. */
   grantPermission: (subject: Subject, serviceId: string, interval?: Interval) => GrantResult;
   /** Удаляет разрешение целиком: после этого симулятор не помнит, что доступ был. */
   revokePermission: (permissionId: string) => void;
   /**
-   * Отзывает разрешение с даты `ГГГГ-ММ-ДД` (первый день без доступа): сокращает `endsOn`
-   * до предыдущего дня, дни до даты остаются в проверке. При отказе конфигурацию не меняет.
+   * Отзывает разрешение с момента `ГГГГ-ММ-ДДTчч:мм` (первая минута без доступа): момент
+   * становится `expiresAt`, время до него остаётся в проверке. При отказе конфигурацию не меняет.
    */
-  revokePermissionFrom: (permissionId: string, date: string) => RevokeFromResult;
+  revokePermissionFrom: (permissionId: string, moment: string) => RevokeFromResult;
   /** Текст файла экспорта для текущей конфигурации. */
   exportJson: () => string;
   /** Проверяет файл целиком. При ошибке конфигурация не меняется, при успехе заменяется и сохраняется. */
@@ -54,11 +54,11 @@ export const useSimulator = (): Simulator => {
 
   return {
     config,
-    checkAccess: (userId, serviceId, onDate) =>
-      calculateAccess(config, { userId, serviceId, at: dateToDay(onDate) }),
+    checkAccess: (userId, serviceId, atMoment) =>
+      calculateAccess(config, { userId, serviceId, at: momentToDate(atMoment) }),
     grantPermission: (subject, serviceId, interval) => {
       const bounds = normalizeInterval(interval);
-      if (intervalError(bounds.startsOn, bounds.endsOn)) {
+      if (intervalError(bounds.startsAt, bounds.expiresAt)) {
         return "invalid-interval";
       }
       const next = addPermission(config, subject, serviceId, bounds);
@@ -69,8 +69,8 @@ export const useSimulator = (): Simulator => {
       return "granted";
     },
     revokePermission: (permissionId) => replace(removePermission(config, permissionId)),
-    revokePermissionFrom: (permissionId, date) => {
-      const outcome = revokePermissionFrom(config, permissionId, date);
+    revokePermissionFrom: (permissionId, moment) => {
+      const outcome = revokePermissionFrom(config, permissionId, moment);
       if (outcome.result === "revoked") {
         replace(outcome.config);
       }

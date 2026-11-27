@@ -1,6 +1,6 @@
 import { Container, List, NativeSelect, Paper, Stack, Text, TextInput, Title } from "@mantine/core";
 import { useState } from "react";
-import { formatDate, useSimulator, usersInGroup } from "../app";
+import { formatMoment, nowMoment, useSimulator, usersInGroup } from "../app";
 import type { AccessSource, Config, InactivePermission } from "../app";
 import { ConfigTransfer } from "./ConfigTransfer";
 import { PermissionsPanel } from "./PermissionsPanel";
@@ -16,8 +16,8 @@ const describeSource = (source: AccessSource, config: Config): string => {
 const describeInactive = (item: InactivePermission, config: Config): string => {
   const reason =
     item.reason === "expired"
-      ? `закончилось ${formatDate(item.date)}`
-      : `ещё не началось, с ${formatDate(item.date)}`;
+      ? `закончилось ${formatMoment(item.boundary)}`
+      : `ещё не началось, с ${formatMoment(item.boundary)}`;
   return `${describeSource(item, config)}: ${reason}`;
 };
 
@@ -34,10 +34,10 @@ export const App = () => {
   const [groupId, setGroupId] = useState("");
   const [userId, setUserId] = useState("");
   const [serviceId, setServiceId] = useState("");
-  // Дата проверки живёт только в компоненте: не сохраняется и не попадает в конфигурацию.
-  const [onDate, setOnDate] = useState("");
+  // Момент проверки живёт только в компоненте: не сохраняется и не попадает в конфигурацию.
+  const [atMoment, setAtMoment] = useState(nowMoment);
 
-  const result = userId && serviceId ? checkAccess(userId, serviceId, onDate) : null;
+  const result = userId && serviceId ? checkAccess(userId, serviceId, atMoment) : null;
 
   return (
     <Container size="sm" py="xl">
@@ -80,11 +80,11 @@ export const App = () => {
           ]}
         />
         <TextInput
-          type="date"
-          label="На дату"
-          data-testid="access-date"
-          value={onDate}
-          onChange={(event) => setOnDate(event.currentTarget.value)}
+          type="datetime-local"
+          label="На момент"
+          data-testid="evaluation-time"
+          value={atMoment}
+          onChange={(event) => setAtMoment(event.currentTarget.value)}
         />
         <Paper withBorder p="md">
           <Text data-testid="access-result" fw={600}>

@@ -1,85 +1,101 @@
-// Даты разрешений: строки `ГГГГ-ММ-ДД` без времени и часового пояса.
+// Даты и моменты разрешений: строки без часового пояса. День `ГГГГ-ММ-ДД` нужен только для
+// перевода старых файлов, момент `ГГГГ-ММ-ДДTчч:мм` (как у `datetime-local`) — основной формат.
 // Слой приложения разбирает и форматирует их и берёт текущее время; расчёт срока живёт в domain.
 
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+const MOMENT_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/;
 
-/** Строго `ГГГГ-ММ-ДД` и реальная дата: `2026-02-30` отвергается. */
-export const isValidDate = (text: string): boolean => {
-  const match = DATE_PATTERN.exec(text);
-  if (!match) {
-    return false;
-  }
-  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+const pad = (value: number, length: number) => String(value).padStart(length, "0");
+
+const isRealDay = (year: number, month: number, day: number): boolean => {
   const date = new Date(year, month - 1, day);
   return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
 };
 
+/** Строго `ГГГГ-ММ-ДД` и реальная дата: `2026-02-30` отвергается. */
+export const isValidDate = (text: string): boolean => {
+  const match = DATE_PATTERN.exec(text);
+  return match !== null && isRealDay(Number(match[1]), Number(match[2]), Number(match[3]));
+};
+
+/** Строго `ГГГГ-ММ-ДДTчч:мм`, реальная дата, часы 00–23, минуты 00–59. */
+export const isValidMoment = (text: string): boolean => {
+  const match = MOMENT_PATTERN.exec(text);
+  if (!match) {
+    return false;
+  }
+  const [year, month, day, hour, minute] = match.slice(1).map(Number);
+  return isRealDay(year, month, day) && hour <= 23 && minute <= 59;
+};
+
 /** Текст ошибки интервала или `undefined`, если интервал допустим. Пустая граница не задана. */
 export const intervalError = (
-  startsOn: string | undefined,
-  endsOn: string | undefined,
+  startsAt: string | undefined,
+  expiresAt: string | undefined,
 ): string | undefined => {
-  if (startsOn !== undefined && !isValidDate(startsOn)) {
-    return "Дата начала должна быть реальной датой в формате ГГГГ-ММ-ДД";
+  if (startsAt !== undefined && !isValidMoment(startsAt)) {
+    return "Начало должно быть реальным моментом в формате ГГГГ-ММ-ДДTчч:мм";
   }
-  if (endsOn !== undefined && !isValidDate(endsOn)) {
-    return "Дата окончания должна быть реальной датой в формате ГГГГ-ММ-ДД";
+  if (expiresAt !== undefined && !isValidMoment(expiresAt)) {
+    return "Окончание должно быть реальным моментом в формате ГГГГ-ММ-ДДTчч:мм";
   }
-  if (startsOn !== undefined && endsOn !== undefined && endsOn < startsOn) {
-    return "Дата окончания раньше даты начала";
+  if (startsAt !== undefined && expiresAt !== undefined && expiresAt <= startsAt) {
+    return "Окончание должно быть позже начала";
   }
   return undefined;
 };
 
 /**
- * Момент расчёта для выбранного дня: локальная полночь этого дня. Пустая или невалидная
- * строка означает «сегодня», тогда берётся текущее время.
+ * Момент расчёта: локальное время этого момента. Пустая или невалидная строка означает
+ * «сейчас», тогда берётся текущее время.
  */
-export const dateToDay = (text: string | undefined): Date => {
-  if (text === undefined || !isValidDate(text)) {
+export const momentToDate = (text: string | undefined): Date => {
+  if (text === undefined || !isValidMoment(text)) {
     return new Date();
   }
-  const [year, month, day] = text.split("-").map(Number);
-  return new Date(year, month - 1, day);
+  const [year, month, day, hour, minute] = text.split(/[-T:]/).map(Number);
+  return new Date(year, month - 1, day, hour, minute);
 };
 
-const pad = (value: number, length: number) => String(value).padStart(length, "0");
-
-/** Сегодняшний день по локальному часовому поясу, `ГГГГ-ММ-ДД`. Часы читает слой приложения. */
-export const todayDay = (): string => {
+/** Текущая минута по локальному часовому поясу, `ГГГГ-ММ-ДДTчч:мм`. Часы читает слой приложения. */
+export const nowMoment = (): string => {
   const now = new Date();
-  return `${pad(now.getFullYear(), 4)}-${pad(now.getMonth() + 1, 2)}-${pad(now.getDate(), 2)}`;
+  const day = `${pad(now.getFullYear(), 4)}-${pad(now.getMonth() + 1, 2)}-${pad(now.getDate(), 2)}`;
+  return `${day}T${pad(now.getHours(), 2)}:${pad(now.getMinutes(), 2)}`;
 };
 
-/** Предыдущий календарный день для реальной даты `ГГГГ-ММ-ДД`, тоже `ГГГГ-ММ-ДД`. */
-export const previousDay = (text: string): string => {
-  const [year, month, day] = text.split("-").map(Number);
-  const date = new Date(year, month - 1, day - 1);
-  return `${pad(date.getFullYear(), 4)}-${pad(date.getMonth() + 1, 2)}-${pad(date.getDate(), 2)}`;
+/** Начало дня `ГГГГ-ММ-ДД` как момент: `ГГГГ-ММ-ДДT00:00`. */
+export const startOfDay = (day: string): string => `${day}T00:00`;
+
+/** Начало следующего дня после `ГГГГ-ММ-ДД` как момент. Переносит месяц и год. */
+export const startOfNextDay = (day: string): string => {
+  const [year, month, date] = day.split("-").map(Number);
+  const next = new Date(year, month - 1, date + 1);
+  return `${pad(next.getFullYear(), 4)}-${pad(next.getMonth() + 1, 2)}-${pad(next.getDate(), 2)}T00:00`;
 };
 
-/** `ГГГГ-ММ-ДД` в `ДД.ММ.ГГГГ`. */
-export const formatDate = (text: string): string => {
-  const [year, month, day] = text.split("-");
-  return `${day}.${month}.${year}`;
+/** `ГГГГ-ММ-ДДTчч:мм` в `ДД.ММ.ГГГГ чч:мм`. */
+export const formatMoment = (text: string): string => {
+  const [year, month, day, hour, minute] = text.split(/[-T:]/);
+  return `${day}.${month}.${year} ${hour}:${minute}`;
 };
 
-/** Срок разрешения словами: «бессрочно», «с …», «по …» или «с … по …». */
+/** Срок разрешения словами: «бессрочно», «с …», «до …» или «с … до …». */
 export const formatInterval = ({
-  startsOn,
-  endsOn,
+  startsAt,
+  expiresAt,
 }: {
-  startsOn?: string;
-  endsOn?: string;
+  startsAt?: string;
+  expiresAt?: string;
 }): string => {
-  if (startsOn !== undefined && endsOn !== undefined) {
-    return `с ${formatDate(startsOn)} по ${formatDate(endsOn)}`;
+  if (startsAt !== undefined && expiresAt !== undefined) {
+    return `с ${formatMoment(startsAt)} до ${formatMoment(expiresAt)}`;
   }
-  if (startsOn !== undefined) {
-    return `с ${formatDate(startsOn)}`;
+  if (startsAt !== undefined) {
+    return `с ${formatMoment(startsAt)}`;
   }
-  if (endsOn !== undefined) {
-    return `по ${formatDate(endsOn)}`;
+  if (expiresAt !== undefined) {
+    return `до ${formatMoment(expiresAt)}`;
   }
   return "бессрочно";
 };

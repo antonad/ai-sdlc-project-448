@@ -47,12 +47,56 @@ describe("хранение конфигурации в браузере", () => 
     expect(loadConfig(storage)).toEqual(changed);
   });
 
-  it("после сохранения копия содержит версию 2", () => {
-    storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, ...seedConfig }));
+  it("читает сохранённую копию версии 2 с переводом дней в моменты, а не учебные данные", () => {
+    const changed = {
+      ...seedConfig,
+      permissions: [
+        { ...seedConfig.permissions[0], startsOn: "2026-12-01", endsOn: "2026-12-31" },
+        ...seedConfig.permissions.slice(1, 3),
+      ],
+    };
+    storage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, ...changed }));
+
+    const loaded = loadConfig(storage);
+
+    expect(loaded).not.toEqual(seedConfig);
+    expect(loaded.permissions).toEqual([
+      {
+        ...seedConfig.permissions[0],
+        startsAt: "2026-12-01T00:00",
+        expiresAt: "2027-01-01T00:00",
+      },
+      ...seedConfig.permissions.slice(1, 3),
+    ]);
+  });
+
+  it("возвращается к учебным данным, если в копии версии 3 несуществующий момент", () => {
+    const broken = {
+      version: 3,
+      ...seedConfig,
+      permissions: [{ ...seedConfig.permissions[0], expiresAt: "2026-02-30T10:00" }],
+    };
+    storage.setItem(STORAGE_KEY, JSON.stringify(broken));
+
+    expect(loadConfig(storage)).toEqual(seedConfig);
+  });
+
+  it("после сохранения копия содержит версию 3 со сроками в моментах", () => {
+    storage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        ...seedConfig,
+        permissions: [{ ...seedConfig.permissions[0], endsOn: "2026-12-14" }],
+      }),
+    );
 
     saveConfig(storage, loadConfig(storage));
 
-    expect(JSON.parse(storage.getItem(STORAGE_KEY) ?? "{}").version).toBe(2);
+    const saved = JSON.parse(storage.getItem(STORAGE_KEY) ?? "{}");
+    expect(saved.version).toBe(3);
+    expect(saved.permissions[0]).toMatchObject({ expiresAt: "2026-12-15T00:00" });
+    expect(saved.permissions[0]).not.toHaveProperty("endsOn");
   });
 
   it("возвращается к учебным данным, если сохранённое повреждено", () => {

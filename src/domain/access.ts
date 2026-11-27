@@ -11,14 +11,14 @@ export type AccessSource =
   | { kind: "direct"; permissionId: string }
   | { kind: "group"; permissionId: string; groupId: string };
 
-/** Почему разрешение не действует в день расчёта: ещё не началось или уже закончилось. */
+/** Почему разрешение не действует в момент расчёта: ещё не началось или уже закончилось. */
 export type InactiveReason = "not-started" | "expired";
 
-/** Подходящее сотруднику и сервису разрешение, которое не действует в день расчёта. */
+/** Подходящее сотруднику и сервису разрешение, которое не действует в момент расчёта. */
 export type InactivePermission = AccessSource & {
   reason: InactiveReason;
-  /** Граница срока (`ГГГГ-ММ-ДД`), из-за которой разрешение не действует. */
-  date: string;
+  /** Граница срока (`ГГГГ-ММ-ДДTчч:мм`), из-за которой разрешение не действует. */
+  boundary: string;
 };
 
 export type AccessResult = {
@@ -29,24 +29,30 @@ export type AccessResult = {
 
 const pad = (value: number, length: number) => String(value).padStart(length, "0");
 
-/** День момента `at` по локальному часовому поясу, `ГГГГ-ММ-ДД`. Строки одного формата сравнимы как текст. */
-const dayKey = (at: Date) =>
-  `${pad(at.getFullYear(), 4)}-${pad(at.getMonth() + 1, 2)}-${pad(at.getDate(), 2)}`;
+/**
+ * Минута момента `at` по локальному часовому поясу, `ГГГГ-ММ-ДДTчч:мм`: секунды отбрасываются.
+ * Строки одного формата сравнимы как текст.
+ */
+const minuteKey = (at: Date) =>
+  `${pad(at.getFullYear(), 4)}-${pad(at.getMonth() + 1, 2)}-${pad(at.getDate(), 2)}` +
+  `T${pad(at.getHours(), 2)}:${pad(at.getMinutes(), 2)}`;
 
-/** Причина, по которой разрешение не действует в день `day`, или `undefined`, если действует. */
+/** Причина, по которой разрешение не действует в минуту `key`, или `undefined`, если действует. Интервал `[startsAt, expiresAt)`. */
 const inactivity = (
-  { startsOn, endsOn }: Permission,
-  day: string,
-): { reason: InactiveReason; date: string } | undefined => {
-  if (startsOn !== undefined && day < startsOn) return { reason: "not-started", date: startsOn };
-  if (endsOn !== undefined && day > endsOn) return { reason: "expired", date: endsOn };
+  { startsAt, expiresAt }: Permission,
+  key: string,
+): { reason: InactiveReason; boundary: string } | undefined => {
+  if (startsAt !== undefined && key < startsAt)
+    return { reason: "not-started", boundary: startsAt };
+  if (expiresAt !== undefined && key >= expiresAt)
+    return { reason: "expired", boundary: expiresAt };
   return undefined;
 };
 
 export const calculateAccess = (config: Config, query: AccessQuery): AccessResult => {
   const user = config.users.find((candidate) => candidate.id === query.userId);
   const groupIds = user?.groupIds ?? [];
-  const day = dayKey(query.at);
+  const key = minuteKey(query.at);
   const forService = config.permissions.filter(
     (permission) => permission.serviceId === query.serviceId,
   );
@@ -73,7 +79,7 @@ export const calculateAccess = (config: Config, query: AccessQuery): AccessResul
   const sources: AccessSource[] = [];
   const inactive: InactivePermission[] = [];
   for (const { permission, source } of candidates) {
-    const problem = inactivity(permission, day);
+    const problem = inactivity(permission, key);
     if (problem) inactive.push({ ...source, ...problem });
     else sources.push(source);
   }

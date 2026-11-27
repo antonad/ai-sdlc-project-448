@@ -1,22 +1,25 @@
 import type { Config, Group, Permission, Service, User } from "../domain/model";
-import { intervalError, isValidDate } from "./dates";
+import { intervalError, isValidDate, isValidMoment, startOfDay, startOfNextDay } from "./dates";
 
 // Формат файла конфигурации (JSON, одинаковый для экспорта, импорта и хранения в браузере):
 //   {
-//     "version": 2,                                   целое число
+//     "version": 3,                                   целое число
 //     "users": [{ "id", "name", "groupIds": [groupId] }],
 //     "groups": [{ "id", "name" }],
 //     "services": [{ "id", "name" }],
 //     "permissions": [{ "id", "subject": { "type": "user" | "group", "id" }, "serviceId",
-//                       "startsOn"?: "ГГГГ-ММ-ДД", "endsOn"?: "ГГГГ-ММ-ДД" }]
+//                       "startsAt"?: "ГГГГ-ММ-ДДTчч:мм", "expiresAt"?: "ГГГГ-ММ-ДДTчч:мм" }]
 //   }
 // Идентификаторы внутри списка уникальны. Разрешения и участие в группах ссылаются на
 // существующие записи, иначе файл отвергается целиком. Неизвестные поля игнорируются: новые
 // поля добавляются как необязательные, версия растёт только при несовместимой правке.
-// Версия 2 добавила срок разрешения (`startsOn`, `endsOn`, обе границы включительные, любая
-// может отсутствовать). Файлы версии 1 принимаются: все их разрешения постоянные.
+// Версия 3: срок разрешения — моменты `startsAt` (включительно) и `expiresAt` (исключительно),
+// любая граница может отсутствовать. Версия 2 хранила дни `startsOn` и `endsOn` (обе границы
+// включительные): при чтении `startsOn` становится началом того же дня, а `endsOn` — началом
+// следующего, поэтому доступ не меняется. Файлы версии 1 принимаются: все их разрешения
+// постоянные.
 
-export const CONFIG_VERSION = 2;
+export const CONFIG_VERSION = 3;
 
 export type ParseResult = { ok: true; config: Config } | { ok: false; errors: string[] };
 
@@ -90,10 +93,12 @@ const readUser = (item: Json, where: string, errors: string[]): User => {
   };
 };
 
-/** Необязательная дата: поля нет, значит граница не задана; иначе строка `ГГГГ-ММ-ДД` с реальной датой. */
-const readOptionalDate = (
+/** Необязательное поле строкой: поля нет, значит граница не задана. */
+const readOptionalText = (
   item: Json,
-  field: "startsOn" | "endsOn",
+  field: string,
+  isValid: (text: string) => boolean,
+  hint: string,
   where: string,
   errors: string[],
 ): string | undefined => {
@@ -101,42 +106,65 @@ const readOptionalDate = (
     return undefined;
   }
   const value = item[field];
-  if (typeof value !== "string" || !isValidDate(value)) {
-    errors.push(`${where}.${field}: нужна реальная дата в формате ГГГГ-ММ-ДД`);
+  if (typeof value !== "string" || !isValid(value)) {
+    errors.push(`${where}.${field}: нужен реальный ${hint}`);
     return undefined;
   }
   return value;
 };
 
-const readPermission = (item: Json, where: string, errors: string[]): Permission | null => {
-  const { subject } = item;
-  if (!isObject(subject)) {
-    errors.push(`${where}: поле subject должно быть объектом`);
-    return null;
+/** Срок разрешения версии 3 (моменты) или более старой версии (дни, переводятся в моменты). */
+const readInterval = (
+  item: Json,
+  version: number,
+  where: string,
+  errors: string[],
+): { startsAt?: string; expiresAt?: string } => {
+  let startsAt: string | undefined;
+  let expiresAt: string | undefined;
+  if (version >= 3) {
+    const hint = "момент в формате ГГГГ-ММ-ДДTчч:мм";
+    startsAt = readOptionalText(item, "startsAt", isValidMoment, hint, where, errors);
+    expiresAt = readOptionalText(item, "expiresAt", isValidMoment, hint, where, errors);
+  } else {
+    const hint = "день в формате ГГГГ-ММ-ДД";
+    const startsOn = readOptionalText(item, "startsOn", isValidDate, hint, where, errors);
+    const endsOn = readOptionalText(item, "endsOn", isValidDate, hint, where, errors);
+    startsAt = startsOn === undefined ? undefined : startOfDay(startsOn);
+    expiresAt = endsOn === undefined ? undefined : startOfNextDay(endsOn);
   }
-  if (subject.type !== "user" && subject.type !== "group") {
-    errors.push(`${where}: тип субъекта должен быть user или group`);
-    return null;
-  }
-  // Версия файла не влияет на чтение: поле срока, которого нет, в результате не появляется.
-  const startsOn = readOptionalDate(item, "startsOn", where, errors);
-  const endsOn = readOptionalDate(item, "endsOn", where, errors);
-  // Пару сверяем, только если обе даты сами валидны, чтобы одна опечатка не давала вторую ошибку.
-  if (startsOn !== undefined && endsOn !== undefined) {
-    const pairError = intervalError(startsOn, endsOn);
+  // Пару сверяем, только если обе границы сами валидны, чтобы одна опечатка не давала вторую ошибку.
+  if (startsAt !== undefined && expiresAt !== undefined) {
+    const pairError = intervalError(startsAt, expiresAt);
     if (pairError) {
       errors.push(`${where}: ${pairError.charAt(0).toLowerCase()}${pairError.slice(1)}`);
     }
   }
   return {
-    id: readText(item, "id", where, errors),
-    subject: { type: subject.type, id: readText(subject, "id", `${where}.subject`, errors) },
-    serviceId: readText(item, "serviceId", where, errors),
-    ...(startsOn === undefined ? {} : { startsOn }),
-    ...(endsOn === undefined ? {} : { endsOn }),
+    ...(startsAt === undefined ? {} : { startsAt }),
+    ...(expiresAt === undefined ? {} : { expiresAt }),
   };
 };
 
+const readPermission =
+  (version: number) =>
+  (item: Json, where: string, errors: string[]): Permission | null => {
+    const { subject } = item;
+    if (!isObject(subject)) {
+      errors.push(`${where}: поле subject должно быть объектом`);
+      return null;
+    }
+    if (subject.type !== "user" && subject.type !== "group") {
+      errors.push(`${where}: тип субъекта должен быть user или group`);
+      return null;
+    }
+    return {
+      id: readText(item, "id", where, errors),
+      subject: { type: subject.type, id: readText(subject, "id", `${where}.subject`, errors) },
+      serviceId: readText(item, "serviceId", where, errors),
+      ...readInterval(item, version, where, errors),
+    };
+  };
 const checkReferences = (config: Config, source: Json, errors: string[]): void => {
   const groups = new Set(config.groups.map(({ id }) => id));
   const users = new Set(config.users.map(({ id }) => id));
@@ -194,7 +222,7 @@ export const parseConfigFile = (text: string): ParseResult => {
     users: readList(root, "users", errors, readUser),
     groups: readList(root, "groups", errors, readNamed),
     services: readList(root, "services", errors, readNamed),
-    permissions: readList(root, "permissions", errors, readPermission),
+    permissions: readList(root, "permissions", errors, readPermission(version)),
   };
   if (errors.length > 0) {
     return { ok: false, errors };

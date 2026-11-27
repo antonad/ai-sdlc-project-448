@@ -162,7 +162,7 @@ describe("фильтр сотрудников по группе", () => {
   });
 });
 
-describe("проверка на дату: разрешение «Северной»", () => {
+describe("проверка на момент: разрешение «Северной»", () => {
   const seed = (extra: Config["permissions"]): string => {
     const base = JSON.parse(exportConfig(seedConfig));
     base.permissions.push(...extra);
@@ -172,12 +172,12 @@ describe("проверка на дату: разрешение «Северно�
     id: "s1",
     subject: { type: "user", id: "vera" },
     serviceId: "ledger",
-    startsOn: "2026-12-01",
-    endsOn: "2026-12-14",
+    startsAt: "2026-12-01T09:00",
+    expiresAt: "2026-12-14T18:00",
   } as const;
 
-  const setDate = (value: string) =>
-    fireEvent.change(screen.getByTestId("access-date"), { target: { value } });
+  const setMoment = (value: string) =>
+    fireEvent.change(screen.getByTestId("evaluation-time"), { target: { value } });
 
   const prepare = async (extra: Config["permissions"] = [contractor]) => {
     localStorage.setItem(STORAGE_KEY, seed(extra));
@@ -185,48 +185,83 @@ describe("проверка на дату: разрешение «Северно�
     await pick("Вера Лисицына", "Учёт");
   };
 
+  const sourceCount = () => within(screen.getByTestId("access-sources")).getAllByRole("listitem");
+
   afterEach(() => vi.useRealTimers());
 
-  it("показывает доступ в первый и последний день договора", async () => {
+  it("по умолчанию в поле текущая минута браузера", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 11, 20, 10, 7, 45));
+    renderApp();
+
+    expect(screen.getByTestId("evaluation-time")).toHaveValue("2026-12-20T10:07");
+  });
+
+  it("показывает доступ внутри интервала и источник", async () => {
     await prepare();
 
-    setDate("2026-12-01");
-    expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
-    setDate("2026-12-14");
+    setMoment("2026-12-10T12:00");
+
     expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
     expect(screen.getByTestId("access-sources")).toHaveTextContent("Прямое разрешение");
   });
 
-  it("после окончания показывает отказ с причиной и датой", async () => {
+  it("начало включительно: в момент начала доступ есть, за минуту до отказ", async () => {
     await prepare();
 
-    setDate("2026-12-15");
+    setMoment("2026-12-01T09:00");
+    expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
 
+    setMoment("2026-12-01T08:59");
     expect(screen.getByTestId("access-result")).toHaveTextContent("Доступа нет");
+    expect(screen.queryByTestId("access-sources")).not.toBeInTheDocument();
     expect(screen.getByTestId("access-inactive")).toHaveTextContent(
-      "Прямое разрешение: закончилось 14.12.2026",
+      "Прямое разрешение: ещё не началось, с 01.12.2026 09:00",
     );
   });
 
-  it("до начала показывает причину «ещё не началось»", async () => {
+  it("окончание исключительно: за минуту до него доступ есть, в сам момент отказ", async () => {
     await prepare();
 
-    setDate("2026-11-30");
+    setMoment("2026-12-14T17:59");
+    expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
 
+    setMoment("2026-12-14T18:00");
     expect(screen.getByTestId("access-result")).toHaveTextContent("Доступа нет");
+    expect(screen.queryByTestId("access-sources")).not.toBeInTheDocument();
     expect(screen.getByTestId("access-inactive")).toHaveTextContent(
-      "Прямое разрешение: ещё не началось, с 01.12.2026",
+      "Прямое разрешение: закончилось 14.12.2026 18:00",
     );
+  });
+
+  it("смена момента пересчитывает результат без перезагрузки", async () => {
+    await prepare();
+
+    setMoment("2026-12-10T12:00");
+    expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
+    setMoment("2026-12-20T12:00");
+    expect(screen.getByTestId("access-result")).toHaveTextContent("Доступа нет");
+    setMoment("2026-12-02T12:00");
+    expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
   });
 
   it("называет группу в причине для группового разрешения", async () => {
     await prepare([{ ...contractor, subject: { type: "group", id: "development" } }]);
 
-    setDate("2026-12-15");
+    setMoment("2026-12-15T12:00");
 
     expect(screen.getByTestId("access-inactive")).toHaveTextContent(
-      "Группа «Разработка»: закончилось 14.12.2026",
+      "Группа «Разработка»: закончилось 14.12.2026 18:00",
     );
+  });
+
+  it("групповое временное разрешение даёт доступ внутри интервала, источник — группа", async () => {
+    await prepare([{ ...contractor, subject: { type: "group", id: "development" } }]);
+
+    setMoment("2026-12-10T12:00");
+
+    expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
+    expect(screen.getByTestId("access-sources")).toHaveTextContent("Группа «Разработка»");
   });
 
   it("при наличии доступа не показывает недействующие разрешения", async () => {
@@ -235,56 +270,106 @@ describe("проверка на дату: разрешение «Северно�
       { id: "s2", subject: { type: "user", id: "vera" }, serviceId: "ledger" },
     ]);
 
-    setDate("2026-12-15");
+    setMoment("2026-12-15T12:00");
 
     expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
     expect(screen.queryByTestId("access-inactive")).not.toBeInTheDocument();
   });
 
-  it("с пустой датой считает на сегодня (часы подменены)", async () => {
+  it("постоянное и временное разрешения на один сервис: внутри два источника, после окончания один", async () => {
+    await prepare([
+      contractor,
+      { id: "s2", subject: { type: "user", id: "vera" }, serviceId: "ledger" },
+    ]);
+
+    setMoment("2026-12-10T12:00");
+    expect(sourceCount()).toHaveLength(2);
+
+    setMoment("2026-12-14T18:00");
+    expect(sourceCount()).toHaveLength(1);
+  });
+
+  it("выдача временного разрешения рядом с постоянным: «Разрешение выдано», а не «уже выдано»", async () => {
+    renderApp();
+    const events = userEvent.setup();
+    await pick("Анна Белова", "Учёт");
+    await events.selectOptions(screen.getByTestId("permission-subject-select"), "Анна Белова");
+    await events.selectOptions(screen.getByTestId("permission-service-select"), "Учёт");
+    fireEvent.change(screen.getByTestId("permission-starts-at"), {
+      target: { value: "2026-12-01T09:00" },
+    });
+    fireEvent.change(screen.getByTestId("permission-expires-at"), {
+      target: { value: "2026-12-14T18:00" },
+    });
+    fireEvent.click(screen.getByTestId("permission-add"));
+
+    expect(screen.getByTestId("permission-message")).toHaveTextContent("Разрешение выдано");
+    expect(screen.getByTestId("permission-message")).not.toHaveTextContent("уже выдано");
+
+    setMoment("2026-12-10T12:00");
+    expect(sourceCount()).toHaveLength(3);
+    setMoment("2026-12-14T18:00");
+    expect(sourceCount()).toHaveLength(2);
+  });
+
+  it("пустое поле считает на «сейчас» (часы подменены)", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(2026, 11, 20, 10, 0));
     await prepare();
 
-    expect(screen.getByTestId("access-date")).toHaveValue("");
+    expect(screen.getByTestId("evaluation-time")).toHaveValue("2026-12-20T10:00");
     expect(screen.getByTestId("access-result")).toHaveTextContent("Доступа нет");
-    expect(screen.getByTestId("access-inactive")).toHaveTextContent("закончилось 14.12.2026");
+    expect(screen.getByTestId("access-inactive")).toHaveTextContent("закончилось 14.12.2026 18:00");
 
-    setDate("2026-12-10");
+    setMoment("2026-12-10T12:00");
     expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
 
-    setDate("");
+    setMoment("");
     expect(screen.getByTestId("access-result")).toHaveTextContent("Доступа нет");
   });
 
-  it("смена даты не меняет сохранённую конфигурацию", async () => {
+  it("смена момента не меняет сохранённую конфигурацию", async () => {
     await prepare();
     const before = localStorage.getItem(STORAGE_KEY);
 
-    setDate("2026-12-15");
-    setDate("2026-12-01");
+    setMoment("2026-12-15T12:00");
+    setMoment("2026-12-01T09:00");
 
     expect(localStorage.getItem(STORAGE_KEY)).toBe(before);
   });
 
-  it("не запоминает дату после перезагрузки", async () => {
+  it("не запоминает момент после перезагрузки: снова текущее время", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 11, 20, 10, 0));
     await prepare();
-    setDate("2026-12-15");
+    setMoment("2026-12-15T12:00");
     cleanup();
 
     renderApp();
 
-    expect(screen.getByTestId("access-date")).toHaveValue("");
+    expect(screen.getByTestId("evaluation-time")).toHaveValue("2026-12-20T10:00");
+  });
+
+  it("импорт файла прежнего формата без интервалов заменяет конфигурацию, доступ как раньше", async () => {
+    renderApp();
+    const legacy = { version: 2, ...seedConfig };
+    const file = new File([JSON.stringify(legacy)], "config.json", { type: "application/json" });
+    await userEvent.setup().upload(screen.getByTestId("import-input"), file);
+
+    expect(await screen.findByTestId("import-status")).toHaveTextContent("Конфигурация заменена");
+    await pick("Борис Каримов", "Репозиторий");
+    expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
+    expect(screen.getByTestId("access-sources")).toHaveTextContent("Прямое разрешение");
   });
 });
 
-describe("отзыв разрешения с даты: договор «Северной»", () => {
+describe("отзыв разрешения с момента: договор «Северной»", () => {
   const contractor = {
     id: "s1",
     subject: { type: "user", id: "vera" },
     serviceId: "ledger",
-    startsOn: "2026-11-20",
-    endsOn: "2026-12-03",
+    startsAt: "2026-11-20T09:00",
+    expiresAt: "2026-12-03T18:00",
   } as const;
 
   const prepare = () => {
@@ -294,10 +379,10 @@ describe("отзыв разрешения с даты: договор «Севе
     renderApp();
   };
 
-  const revokeFrom = (id: string, date: string) => {
+  const revokeFrom = (id: string, moment: string) => {
     fireEvent.click(screen.getByTestId(`permission-revoke-open-${id}`));
     fireEvent.change(screen.getByTestId(`permission-revoke-date-${id}`), {
-      target: { value: date },
+      target: { value: moment },
     });
     fireEvent.click(screen.getByTestId(`permission-revoke-confirm-${id}`));
   };
@@ -312,62 +397,70 @@ describe("отзыв разрешения с даты: договор «Севе
   it("отзывает разрешение: сообщение, новый срок в строке и в сохранённой конфигурации", () => {
     prepare();
 
-    revokeFrom("s1", "2026-11-27");
+    revokeFrom("s1", "2026-11-27T12:00");
 
     expect(screen.getByTestId("permission-message")).toHaveTextContent(
-      "Разрешение отозвано с 27.11.2026",
+      "Разрешение отозвано с 27.11.2026 12:00",
     );
     expect(screen.getByTestId("permission-interval-s1")).toHaveTextContent(
-      "с 20.11.2026 по 26.11.2026",
+      "с 20.11.2026 09:00 до 27.11.2026 12:00",
     );
-    expect(savedPermission("s1")).toMatchObject({ startsOn: "2026-11-20", endsOn: "2026-11-26" });
+    expect(savedPermission("s1")).toMatchObject({
+      startsAt: "2026-11-20T09:00",
+      expiresAt: "2026-11-27T12:00",
+    });
   });
 
-  it("после отзыва проверка на 26.11.2026 показывает доступ, а на 27.11.2026 отказ с причиной", async () => {
+  it("после отзыва за минуту до момента доступ есть, в сам момент отказ с причиной", async () => {
     prepare();
     await pick("Вера Лисицына", "Учёт");
-    revokeFrom("s1", "2026-11-27");
+    revokeFrom("s1", "2026-11-27T12:00");
 
-    fireEvent.change(screen.getByTestId("access-date"), { target: { value: "2026-11-26" } });
+    fireEvent.change(screen.getByTestId("evaluation-time"), {
+      target: { value: "2026-11-27T11:59" },
+    });
     expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
     expect(screen.getByTestId("access-sources")).toHaveTextContent("Прямое разрешение");
 
-    fireEvent.change(screen.getByTestId("access-date"), { target: { value: "2026-11-27" } });
+    fireEvent.change(screen.getByTestId("evaluation-time"), {
+      target: { value: "2026-11-27T12:00" },
+    });
     expect(screen.getByTestId("access-result")).toHaveTextContent("Доступа нет");
     expect(screen.getByTestId("access-inactive")).toHaveTextContent(
-      "Прямое разрешение: закончилось 26.11.2026",
+      "Прямое разрешение: закончилось 27.11.2026 12:00",
     );
   });
 
-  it("в поле даты по умолчанию сегодняшняя дата", () => {
+  it("в поле момента отзыва по умолчанию текущая минута", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date(2026, 10, 27, 10, 0));
+    vi.setSystemTime(new Date(2026, 10, 27, 10, 5, 30));
     prepare();
 
     fireEvent.click(screen.getByTestId("permission-revoke-open-s1"));
 
-    expect(screen.getByTestId("permission-revoke-date-s1")).toHaveValue("2026-11-27");
+    expect(screen.getByTestId("permission-revoke-date-s1")).toHaveValue("2026-11-27T10:05");
   });
 
-  it("отзывает бессрочное разрешение: в строке появляется «по 26.11.2026»", () => {
+  it("отзывает бессрочное разрешение: в строке появляется окончание", () => {
     prepare();
 
-    revokeFrom("p3", "2026-11-27");
+    revokeFrom("p3", "2026-11-27T12:00");
 
-    expect(screen.getByTestId("permission-interval-p3")).toHaveTextContent("по 26.11.2026");
+    expect(screen.getByTestId("permission-interval-p3")).toHaveTextContent("27.11.2026 12:00");
+    expect(savedPermission("p3")).toMatchObject({ expiresAt: "2026-11-27T12:00" });
   });
 
-  it("отказывает, если дата отзыва не позже начала", () => {
+  it("отказывает, если момент отзыва не позже начала", () => {
     prepare();
     const before = localStorage.getItem(STORAGE_KEY);
 
-    revokeFrom("s1", "2026-11-20");
+    revokeFrom("s1", "2026-11-20T09:00");
 
     expect(screen.getByTestId("permission-message")).toHaveTextContent(
-      "Дата отзыва не позже даты начала, удалите разрешение",
+      "Момент отзыва не позже начала, удалите разрешение",
     );
     expect(screen.getByTestId("permission-interval-s1")).toHaveTextContent(
-      "с 20.11.2026 по 03.12.2026",
+      "с 20.11.2026 09:00 до 03.12.2026 18:00",
     );
     expect(localStorage.getItem(STORAGE_KEY)).toBe(before);
   });
@@ -376,25 +469,25 @@ describe("отзыв разрешения с даты: договор «Севе
     prepare();
     const before = localStorage.getItem(STORAGE_KEY);
 
-    revokeFrom("s1", "2026-12-10");
+    revokeFrom("s1", "2026-12-10T12:00");
 
     expect(screen.getByTestId("permission-message")).toHaveTextContent(
       "Разрешение и так закончится раньше",
     );
     expect(screen.getByTestId("permission-interval-s1")).toHaveTextContent(
-      "с 20.11.2026 по 03.12.2026",
+      "с 20.11.2026 09:00 до 03.12.2026 18:00",
     );
     expect(localStorage.getItem(STORAGE_KEY)).toBe(before);
   });
 
-  it("отказывает при пустой дате", () => {
+  it("отказывает при пустом моменте", () => {
     prepare();
     const before = localStorage.getItem(STORAGE_KEY);
 
     revokeFrom("s1", "");
 
     expect(screen.getByTestId("permission-message")).toHaveTextContent(
-      "Дата отзыва должна быть реальной датой в формате ГГГГ-ММ-ДД",
+      "Момент отзыва должен быть реальным моментом в формате ГГГГ-ММ-ДДTчч:мм",
     );
     expect(localStorage.getItem(STORAGE_KEY)).toBe(before);
   });
