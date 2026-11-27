@@ -91,7 +91,7 @@ describe("фильтр сотрудников по группе", () => {
 
   it("после выбора группы в списке только её участники", async () => {
     renderApp();
-    await userEvent.setup().selectOptions(screen.getByTestId("group-select"), "Бухгалтерия");
+    await userEvent.setup().selectOptions(screen.getByTestId("group-filter"), "Бухгалтерия");
 
     expect(userNames()).toEqual(["Не выбран", "Анна Белова"]);
   });
@@ -100,7 +100,7 @@ describe("фильтр сотрудников по группе", () => {
     renderApp();
     const events = userEvent.setup();
     await pick("Анна Белова", "Учёт");
-    await events.selectOptions(screen.getByTestId("group-select"), "Поддержка");
+    await events.selectOptions(screen.getByTestId("group-filter"), "Поддержка");
 
     expect(screen.getByTestId("user-select")).toHaveValue("");
     expect(screen.getByTestId("access-result")).toHaveTextContent("Выберите сотрудника и сервис");
@@ -110,7 +110,7 @@ describe("фильтр сотрудников по группе", () => {
     renderApp();
     const events = userEvent.setup();
     await pick("Анна Белова", "Учёт");
-    await events.selectOptions(screen.getByTestId("group-select"), "Бухгалтерия");
+    await events.selectOptions(screen.getByTestId("group-filter"), "Бухгалтерия");
 
     expect(screen.getByTestId("user-select")).toHaveValue("anna");
     expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
@@ -119,9 +119,9 @@ describe("фильтр сотрудников по группе", () => {
   it("при возврате к «Все группы» полный список, выбранный сотрудник остаётся", async () => {
     renderApp();
     const events = userEvent.setup();
-    await events.selectOptions(screen.getByTestId("group-select"), "Бухгалтерия");
+    await events.selectOptions(screen.getByTestId("group-filter"), "Бухгалтерия");
     await events.selectOptions(screen.getByTestId("user-select"), "Анна Белова");
-    await events.selectOptions(screen.getByTestId("group-select"), "Все группы");
+    await events.selectOptions(screen.getByTestId("group-filter"), "Все группы");
 
     expect(userNames()).toHaveLength(4);
     expect(screen.getByTestId("user-select")).toHaveValue("anna");
@@ -132,7 +132,7 @@ describe("фильтр сотрудников по группе", () => {
     const events = userEvent.setup();
     await pick("Анна Белова", "Учёт");
     const without = screen.getByTestId("access-sources").textContent;
-    await events.selectOptions(screen.getByTestId("group-select"), "Бухгалтерия");
+    await events.selectOptions(screen.getByTestId("group-filter"), "Бухгалтерия");
 
     expect(screen.getByTestId("access-sources").textContent).toBe(without);
   });
@@ -155,9 +155,9 @@ describe("фильтр сотрудников по группе", () => {
     const events = userEvent.setup();
 
     expect(userNames()).toEqual(["Не выбран", "Двойной", "Одинокий"]);
-    await events.selectOptions(screen.getByTestId("group-select"), "Первая");
+    await events.selectOptions(screen.getByTestId("group-filter"), "Первая");
     expect(userNames()).toEqual(["Не выбран", "Двойной"]);
-    await events.selectOptions(screen.getByTestId("group-select"), "Вторая");
+    await events.selectOptions(screen.getByTestId("group-filter"), "Вторая");
     expect(userNames()).toEqual(["Не выбран", "Двойной"]);
   });
 });
