@@ -1,4 +1,4 @@
-import type { Config, Subject } from "../domain/model";
+import type { Config, Permission, Subject } from "../domain/model";
 import { isValidUtcMoment } from "./dates";
 
 const sameSubject = (left: Subject, right: Subject): boolean =>
@@ -118,6 +118,37 @@ export const revokePermissionFrom = (
     },
     result: "revoked",
   };
+};
+
+const sameGrant = (left: Permission, right: Permission): boolean =>
+  left.id === right.id &&
+  sameSubject(left.subject, right.subject) &&
+  left.serviceId === right.serviceId &&
+  left.startsAt === right.startsAt &&
+  left.expiresAt === right.expiresAt;
+
+/**
+ * Импорт заменяет конфигурацию, но отзыв — сознательное решение и не должен пропадать: файл,
+ * выгруженный до отзыва, его не содержит. Отзыв текущей конфигурации переносится на то же
+ * разрешение из файла (совпадают id, субъект, сервис и обе границы); если отзыв есть и там, и
+ * там, действует более ранний. Остальное берётся из файла. Без переносов возвращается `imported`.
+ */
+export const carryOverRevocations = (current: Config, imported: Config): Config => {
+  let changed = false;
+  const permissions = imported.permissions.map((permission) => {
+    const earlier = current.permissions.find(
+      (candidate) => candidate.revokedAt !== undefined && sameGrant(candidate, permission),
+    )?.revokedAt;
+    if (
+      earlier === undefined ||
+      (permission.revokedAt !== undefined && permission.revokedAt <= earlier)
+    ) {
+      return permission;
+    }
+    changed = true;
+    return { ...permission, revokedAt: earlier };
+  });
+  return changed ? { ...imported, permissions } : imported;
 };
 
 /** Снимает ровно одно разрешение по идентификатору. Остальные источники доступа не трогает. */

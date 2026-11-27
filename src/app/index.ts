@@ -6,6 +6,7 @@ import { exportConfig, parseConfigFile } from "./config-file";
 import { intervalError, isValidMoment, isValidUtcMoment, localToUtc, momentToDate } from "./dates";
 import {
   addPermission,
+  carryOverRevocations,
   normalizeInterval,
   removePermission,
   revokePermissionFrom,
@@ -38,7 +39,10 @@ export type Simulator = {
   revokePermissionFrom: (permissionId: string, moment: string) => RevokeFromResult;
   /** Текст файла экспорта для текущей конфигурации. */
   exportJson: () => string;
-  /** Проверяет файл целиком. При ошибке конфигурация не меняется, при успехе заменяется и сохраняется. */
+  /**
+   * Проверяет файл целиком. При ошибке конфигурация не меняется, при успехе заменяется и
+   * сохраняется; отзывы текущей конфигурации переносятся на те же разрешения из файла.
+   */
   importJson: (text: string) => ImportResult;
 };
 
@@ -95,7 +99,8 @@ export const useSimulator = (): Simulator => {
       if (!result.ok) {
         return result;
       }
-      replace(result.config);
+      // Отзывы текущей конфигурации не теряются, даже если файл выгружен до отзыва.
+      replace(carryOverRevocations(config, result.config));
       return { ok: true };
     },
   };

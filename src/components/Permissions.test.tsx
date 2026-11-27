@@ -1,4 +1,4 @@
-import { MantineProvider } from "@mantine/core";
+﻿import { MantineProvider } from "@mantine/core";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
@@ -436,5 +436,70 @@ describe("отзыв разрешения с момента", () => {
 
     expect(await screen.findByTestId("import-status")).toHaveTextContent("Конфигурация заменена");
     expect(screen.queryAllByTestId(/^permission-revoke-/)).toHaveLength(0);
+  });
+});
+
+describe("отзыв и импорт сохранённого файла", () => {
+  // Файл выгружен до отзыва: тот же формат, что и у сохранённой копии.
+  const grantAndExport = async () => {
+    const events = userEvent.setup();
+    await events.selectOptions(screen.getByTestId("permission-subject-select"), "Анна Белова");
+    await events.selectOptions(screen.getByTestId("permission-service-select"), "Репозиторий");
+    fireEvent.change(screen.getByTestId("permission-starts-at"), {
+      target: { value: "2026-11-20T09:00" },
+    });
+    fireEvent.change(screen.getByTestId("permission-expires-at"), {
+      target: { value: "2026-12-03T18:00" },
+    });
+    await events.click(screen.getByTestId("permission-add"));
+    return localStorage.getItem(STORAGE_KEY) ?? "";
+  };
+  const revokeAt = async (moment: string) => {
+    fireEvent.change(screen.getByTestId("permission-revoked-at"), { target: { value: moment } });
+    await userEvent.setup().click(screen.getByTestId("permission-revoke-p6"));
+  };
+  const checkAt = async (moment: string) => {
+    await pickAccess("Анна Белова", "Репозиторий");
+    fireEvent.change(screen.getByTestId("evaluation-time"), { target: { value: moment } });
+  };
+
+  it("файл, выгруженный до отзыва, не открывает доступ снова", async () => {
+    renderApp();
+    const before = await grantAndExport();
+    await revokeAt("2026-11-27T12:00");
+    await upload(before);
+
+    expect(await screen.findByTestId("import-status")).toHaveTextContent("Конфигурация заменена");
+    await checkAt("2026-11-28T10:00");
+    expect(screen.getByTestId("access-result")).toHaveTextContent("Доступа нет");
+    expect(screen.queryByTestId("access-sources")).not.toBeInTheDocument();
+    expect(screen.getByTestId("permission-revoked-p6")).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}").permissions[5].revokedAt).toBe(
+      "2026-11-27T07:00Z",
+    );
+  });
+
+  it("тот же файл без отзыва в текущей конфигурации оставляет доступ", async () => {
+    renderApp();
+    const before = await grantAndExport();
+    await upload(before);
+
+    expect(await screen.findByTestId("import-status")).toHaveTextContent("Конфигурация заменена");
+    await checkAt("2026-11-28T10:00");
+    expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
+  });
+
+  it("файл с ошибкой отвергается целиком, отзыв и сохранённая копия остаются", async () => {
+    renderApp();
+    const before = await grantAndExport();
+    await revokeAt("2026-11-27T12:00");
+    const saved = localStorage.getItem(STORAGE_KEY);
+    const broken = JSON.parse(before);
+    broken.permissions[0].serviceId = "vault";
+    await upload(JSON.stringify(broken));
+
+    expect(await screen.findByTestId("import-error")).toBeInTheDocument();
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(saved);
+    expect(screen.getByTestId("permission-revoked-p6")).toBeInTheDocument();
   });
 });

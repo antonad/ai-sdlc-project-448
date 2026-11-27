@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import { calculateAccess } from "../domain/access";
-import { addPermission, removePermission, revokePermissionFrom } from "./permissions";
+import {
+  addPermission,
+  carryOverRevocations,
+  removePermission,
+  revokePermissionFrom,
+} from "./permissions";
 import { seedConfig } from "./seed";
 
 const accessOf = (config: typeof seedConfig, userId: string, serviceId: string) =>
@@ -468,5 +473,83 @@ describe("отзыв разрешения с момента", () => {
       { kind: "direct", permissionId: "p1" },
       { kind: "group", permissionId: "p2", groupId: "accounting" },
     ]);
+  });
+});
+
+describe("перенос отзывов при импорте", () => {
+  const term = { startsAt: "2026-11-20T09:00Z", expiresAt: "2026-12-03T18:00Z" };
+  const withTerm = (revokedAt?: string) => ({
+    ...seedConfig,
+    permissions: [
+      ...seedConfig.permissions,
+      {
+        id: "p6",
+        subject: { type: "user" as const, id: "anna" },
+        serviceId: "repository",
+        ...term,
+        ...(revokedAt === undefined ? {} : { revokedAt }),
+      },
+    ],
+  });
+  const p6 = (config: typeof seedConfig) => config.permissions.find(({ id }) => id === "p6");
+
+  it("переносит отзыв на то же разрешение из файла, и доступ остаётся закрытым", () => {
+    const current = withTerm("2026-11-27T12:00Z");
+    const next = carryOverRevocations(current, withTerm());
+
+    expect(p6(next)?.revokedAt).toBe("2026-11-27T12:00Z");
+    expect(accessAt(next, "anna", "repository", "2026-11-28T10:00Z").granted).toBe(false);
+  });
+
+  it("без отзыва в текущей конфигурации возвращает ту же ссылку, доступ внутри интервала есть", () => {
+    const imported = withTerm();
+    const next = carryOverRevocations(withTerm(), imported);
+
+    expect(next).toBe(imported);
+    expect(accessAt(next, "anna", "repository", "2026-11-28T10:00Z").granted).toBe(true);
+  });
+
+  it("не переносит отзыв на другую выдачу под тем же идентификатором", () => {
+    const current = withTerm("2026-11-27T12:00Z");
+    const other = withTerm();
+    const variants = [
+      { serviceId: "mail" },
+      { subject: { type: "user" as const, id: "boris" } },
+      { startsAt: "2026-11-21T09:00Z" },
+      { expiresAt: "2026-12-04T18:00Z" },
+    ];
+    for (const change of variants) {
+      const imported = {
+        ...other,
+        permissions: other.permissions.map((item) =>
+          item.id === "p6" ? { ...item, ...change } : item,
+        ),
+      };
+
+      expect(carryOverRevocations(current, imported)).toBe(imported);
+    }
+  });
+
+  it("при двух отзывах действует более ранний", () => {
+    const early = carryOverRevocations(
+      withTerm("2026-11-25T12:00Z"),
+      withTerm("2026-11-27T12:00Z"),
+    );
+    const late = carryOverRevocations(withTerm("2026-11-27T12:00Z"), withTerm("2026-11-25T12:00Z"));
+
+    expect(p6(early)?.revokedAt).toBe("2026-11-25T12:00Z");
+    expect(p6(late)?.revokedAt).toBe("2026-11-25T12:00Z");
+  });
+
+  it("меняет только совпавшее разрешение, остальное берёт из файла, исходные объекты целы", () => {
+    const current = withTerm("2026-11-27T12:00Z");
+    const imported = { ...withTerm(), permissions: withTerm().permissions.slice(1) };
+    const snapshot = structuredClone(imported);
+    const next = carryOverRevocations(current, imported);
+
+    expect(next.permissions.map(({ id }) => id)).toEqual(["p2", "p3", "p4", "p5", "p6"]);
+    expect(next.permissions.slice(0, 4)).toEqual(imported.permissions.slice(0, 4));
+    expect(next.users).toEqual(imported.users);
+    expect(imported).toEqual(snapshot);
   });
 });
