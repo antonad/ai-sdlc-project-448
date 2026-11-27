@@ -1,12 +1,13 @@
 import { Button, Group, NativeSelect, Paper, Stack, Text, TextInput, Title } from "@mantine/core";
 import { useState } from "react";
-import { formatInterval } from "../app";
-import type { Config, GrantResult, Interval, Permission, Subject } from "../app";
+import { formatDate, formatInterval, todayDay } from "../app";
+import type { Config, GrantResult, Interval, Permission, RevokeFromResult, Subject } from "../app";
 
 type Props = {
   config: Config;
   onGrant: (subject: Subject, serviceId: string, interval?: Interval) => GrantResult;
   onRevoke: (permissionId: string) => void;
+  onRevokeFrom: (permissionId: string, date: string) => RevokeFromResult;
 };
 
 const subjectName = (subject: Subject, config: Config): string => {
@@ -33,7 +34,17 @@ const MESSAGES: Record<GrantResult, string> = {
   "invalid-interval": "Дата окончания раньше даты начала",
 };
 
-export const PermissionsPanel = ({ config, onGrant, onRevoke }: Props) => {
+const REVOKE_FAILURES: Record<Exclude<RevokeFromResult, "revoked">, string> = {
+  "invalid-date": "Дата отзыва должна быть реальной датой в формате ГГГГ-ММ-ДД",
+  "unknown-permission": "Разрешение не найдено",
+  "not-after-start": "Дата отзыва не позже даты начала, удалите разрешение",
+  "already-ended": "Разрешение и так закончится раньше",
+};
+
+export const PermissionsPanel = ({ config, onGrant, onRevoke, onRevokeFrom }: Props) => {
+  // Отзыв с даты открыт максимум в одной строке: идентификатор разрешения и введённая дата.
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [revokeDate, setRevokeDate] = useState("");
   const [subjectValue, setSubjectValue] = useState("");
   const [serviceId, setServiceId] = useState("");
   const [startsOn, setStartsOn] = useState("");
@@ -48,6 +59,21 @@ export const PermissionsPanel = ({ config, onGrant, onRevoke }: Props) => {
     }
     const result = onGrant(subject, serviceId, { startsOn, endsOn });
     setMessage(MESSAGES[result]);
+  };
+
+  const openRevoke = (permissionId: string) => {
+    setRevokingId(permissionId);
+    setRevokeDate(todayDay());
+  };
+
+  const revokeFrom = (permissionId: string) => {
+    const result = onRevokeFrom(permissionId, revokeDate);
+    if (result === "revoked") {
+      setMessage(`Разрешение отозвано с ${formatDate(revokeDate)}`);
+      setRevokingId(null);
+    } else {
+      setMessage(REVOKE_FAILURES[result]);
+    }
   };
 
   return (
@@ -69,14 +95,43 @@ export const PermissionsPanel = ({ config, onGrant, onRevoke }: Props) => {
                 {formatInterval(permission)}
               </span>
             </Text>
-            <Button
-              variant="default"
-              size="xs"
-              data-testid={`permission-remove-${permission.id}`}
-              onClick={() => onRevoke(permission.id)}
-            >
-              Удалить
-            </Button>
+            <Group gap="xs" align="flex-end">
+              {revokingId === permission.id && (
+                <>
+                  <TextInput
+                    type="date"
+                    size="xs"
+                    aria-label="Дата отзыва"
+                    data-testid={`permission-revoke-date-${permission.id}`}
+                    value={revokeDate}
+                    onChange={(event) => setRevokeDate(event.currentTarget.value)}
+                  />
+                  <Button
+                    size="xs"
+                    data-testid={`permission-revoke-confirm-${permission.id}`}
+                    onClick={() => revokeFrom(permission.id)}
+                  >
+                    Отозвать
+                  </Button>
+                </>
+              )}
+              <Button
+                variant="default"
+                size="xs"
+                data-testid={`permission-revoke-open-${permission.id}`}
+                onClick={() => openRevoke(permission.id)}
+              >
+                Отозвать с даты
+              </Button>
+              <Button
+                variant="default"
+                size="xs"
+                data-testid={`permission-remove-${permission.id}`}
+                onClick={() => onRevoke(permission.id)}
+              >
+                Удалить
+              </Button>
+            </Group>
           </Group>
         ))}
         <Group align="flex-end">

@@ -277,3 +277,134 @@ describe("проверка на дату: разрешение «Северно�
     expect(screen.getByTestId("access-date")).toHaveValue("");
   });
 });
+
+describe("отзыв разрешения с даты: договор «Северной»", () => {
+  const contractor = {
+    id: "s1",
+    subject: { type: "user", id: "vera" },
+    serviceId: "ledger",
+    startsOn: "2026-11-20",
+    endsOn: "2026-12-03",
+  } as const;
+
+  const prepare = () => {
+    const base = JSON.parse(exportConfig(seedConfig));
+    base.permissions.push(contractor);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(base));
+    renderApp();
+  };
+
+  const revokeFrom = (id: string, date: string) => {
+    fireEvent.click(screen.getByTestId(`permission-revoke-open-${id}`));
+    fireEvent.change(screen.getByTestId(`permission-revoke-date-${id}`), {
+      target: { value: date },
+    });
+    fireEvent.click(screen.getByTestId(`permission-revoke-confirm-${id}`));
+  };
+
+  const savedPermission = (id: string) =>
+    JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}").permissions.find(
+      (permission: { id: string }) => permission.id === id,
+    );
+
+  afterEach(() => vi.useRealTimers());
+
+  it("отзывает разрешение: сообщение, новый срок в строке и в сохранённой конфигурации", () => {
+    prepare();
+
+    revokeFrom("s1", "2026-11-27");
+
+    expect(screen.getByTestId("permission-message")).toHaveTextContent(
+      "Разрешение отозвано с 27.11.2026",
+    );
+    expect(screen.getByTestId("permission-interval-s1")).toHaveTextContent(
+      "с 20.11.2026 по 26.11.2026",
+    );
+    expect(savedPermission("s1")).toMatchObject({ startsOn: "2026-11-20", endsOn: "2026-11-26" });
+  });
+
+  it("после отзыва проверка на 26.11.2026 показывает доступ, а на 27.11.2026 отказ с причиной", async () => {
+    prepare();
+    await pick("Вера Лисицына", "Учёт");
+    revokeFrom("s1", "2026-11-27");
+
+    fireEvent.change(screen.getByTestId("access-date"), { target: { value: "2026-11-26" } });
+    expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
+    expect(screen.getByTestId("access-sources")).toHaveTextContent("Прямое разрешение");
+
+    fireEvent.change(screen.getByTestId("access-date"), { target: { value: "2026-11-27" } });
+    expect(screen.getByTestId("access-result")).toHaveTextContent("Доступа нет");
+    expect(screen.getByTestId("access-inactive")).toHaveTextContent(
+      "Прямое разрешение: закончилось 26.11.2026",
+    );
+  });
+
+  it("в поле даты по умолчанию сегодняшняя дата", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 10, 27, 10, 0));
+    prepare();
+
+    fireEvent.click(screen.getByTestId("permission-revoke-open-s1"));
+
+    expect(screen.getByTestId("permission-revoke-date-s1")).toHaveValue("2026-11-27");
+  });
+
+  it("отзывает бессрочное разрешение: в строке появляется «по 26.11.2026»", () => {
+    prepare();
+
+    revokeFrom("p3", "2026-11-27");
+
+    expect(screen.getByTestId("permission-interval-p3")).toHaveTextContent("по 26.11.2026");
+  });
+
+  it("отказывает, если дата отзыва не позже начала", () => {
+    prepare();
+    const before = localStorage.getItem(STORAGE_KEY);
+
+    revokeFrom("s1", "2026-11-20");
+
+    expect(screen.getByTestId("permission-message")).toHaveTextContent(
+      "Дата отзыва не позже даты начала, удалите разрешение",
+    );
+    expect(screen.getByTestId("permission-interval-s1")).toHaveTextContent(
+      "с 20.11.2026 по 03.12.2026",
+    );
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(before);
+  });
+
+  it("отказывает, если разрешение и так закончится раньше", () => {
+    prepare();
+    const before = localStorage.getItem(STORAGE_KEY);
+
+    revokeFrom("s1", "2026-12-10");
+
+    expect(screen.getByTestId("permission-message")).toHaveTextContent(
+      "Разрешение и так закончится раньше",
+    );
+    expect(screen.getByTestId("permission-interval-s1")).toHaveTextContent(
+      "с 20.11.2026 по 03.12.2026",
+    );
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(before);
+  });
+
+  it("отказывает при пустой дате", () => {
+    prepare();
+    const before = localStorage.getItem(STORAGE_KEY);
+
+    revokeFrom("s1", "");
+
+    expect(screen.getByTestId("permission-message")).toHaveTextContent(
+      "Дата отзыва должна быть реальной датой в формате ГГГГ-ММ-ДД",
+    );
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(before);
+  });
+
+  it("кнопка «Удалить» работает как прежде", () => {
+    prepare();
+
+    fireEvent.click(screen.getByTestId("permission-remove-s1"));
+
+    expect(screen.queryByTestId("permission-item-s1")).not.toBeInTheDocument();
+    expect(savedPermission("s1")).toBeUndefined();
+  });
+});

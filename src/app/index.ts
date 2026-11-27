@@ -4,15 +4,20 @@ import type { AccessResult } from "../domain/access";
 import type { Config, Subject } from "../domain/model";
 import { exportConfig, parseConfigFile } from "./config-file";
 import { dateToDay, intervalError } from "./dates";
-import { addPermission, normalizeInterval, removePermission } from "./permissions";
-import type { Interval } from "./permissions";
+import {
+  addPermission,
+  normalizeInterval,
+  removePermission,
+  revokePermissionFrom,
+} from "./permissions";
+import type { Interval, RevokeFromResult } from "./permissions";
 import { loadConfig, saveConfig } from "./storage";
 
-export { formatDate, formatInterval } from "./dates";
+export { formatDate, formatInterval, todayDay } from "./dates";
 export { usersInGroup } from "./users";
 
 export type { AccessResult, AccessSource, InactivePermission } from "../domain/access";
-export type { Interval } from "./permissions";
+export type { Interval, RevokeFromResult } from "./permissions";
 export type { Config, Group, Permission, Service, Subject, User } from "../domain/model";
 
 export type GrantResult = "granted" | "exists" | "invalid-interval";
@@ -24,7 +29,13 @@ export type Simulator = {
   checkAccess: (userId: string, serviceId: string, onDate?: string) => AccessResult;
   /** Выдаёт постоянное разрешение или разрешение на интервал. Неверный интервал конфигурацию не меняет. */
   grantPermission: (subject: Subject, serviceId: string, interval?: Interval) => GrantResult;
+  /** Удаляет разрешение целиком: после этого симулятор не помнит, что доступ был. */
   revokePermission: (permissionId: string) => void;
+  /**
+   * Отзывает разрешение с даты `ГГГГ-ММ-ДД` (первый день без доступа): сокращает `endsOn`
+   * до предыдущего дня, дни до даты остаются в проверке. При отказе конфигурацию не меняет.
+   */
+  revokePermissionFrom: (permissionId: string, date: string) => RevokeFromResult;
   /** Текст файла экспорта для текущей конфигурации. */
   exportJson: () => string;
   /** Проверяет файл целиком. При ошибке конфигурация не меняется, при успехе заменяется и сохраняется. */
@@ -58,6 +69,13 @@ export const useSimulator = (): Simulator => {
       return "granted";
     },
     revokePermission: (permissionId) => replace(removePermission(config, permissionId)),
+    revokePermissionFrom: (permissionId, date) => {
+      const outcome = revokePermissionFrom(config, permissionId, date);
+      if (outcome.result === "revoked") {
+        replace(outcome.config);
+      }
+      return outcome.result;
+    },
     exportJson: () => exportConfig(config),
     importJson: (text) => {
       const result = parseConfigFile(text);

@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { dateToDay, formatDate, formatInterval, intervalError, isValidDate } from "./dates";
+import {
+  dateToDay,
+  formatDate,
+  formatInterval,
+  intervalError,
+  isValidDate,
+  previousDay,
+  todayDay,
+} from "./dates";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -81,6 +89,31 @@ describe("dateToDay", () => {
 
     expect(dateToDay("2026-02-30")).toEqual(new Date(2026, 5, 1, 15, 30));
     expect(dateToDay("14.12.2026")).toEqual(new Date(2026, 5, 1, 15, 30));
+  });
+});
+
+describe("todayDay", () => {
+  it("возвращает локальный сегодняшний день в формате ГГГГ-ММ-ДД", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 10, 27, 23, 59));
+
+    expect(todayDay()).toBe("2026-11-27");
+  });
+});
+
+describe("previousDay", () => {
+  it("возвращает предыдущий день внутри месяца", () => {
+    expect(previousDay("2026-11-27")).toBe("2026-11-26");
+  });
+
+  it("переходит через границу месяца и года", () => {
+    expect(previousDay("2026-12-01")).toBe("2026-11-30");
+    expect(previousDay("2027-01-01")).toBe("2026-12-31");
+  });
+
+  it("учитывает 29 февраля високосного года", () => {
+    expect(previousDay("2028-03-01")).toBe("2028-02-29");
+    expect(previousDay("2027-03-01")).toBe("2027-02-28");
   });
 });
 

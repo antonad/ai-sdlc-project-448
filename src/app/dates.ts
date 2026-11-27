@@ -43,6 +43,21 @@ export const dateToDay = (text: string | undefined): Date => {
   return new Date(year, month - 1, day);
 };
 
+const pad = (value: number, length: number) => String(value).padStart(length, "0");
+
+/** Сегодняшний день по локальному часовому поясу, `ГГГГ-ММ-ДД`. Часы читает слой приложения. */
+export const todayDay = (): string => {
+  const now = new Date();
+  return `${pad(now.getFullYear(), 4)}-${pad(now.getMonth() + 1, 2)}-${pad(now.getDate(), 2)}`;
+};
+
+/** Предыдущий календарный день для реальной даты `ГГГГ-ММ-ДД`, тоже `ГГГГ-ММ-ДД`. */
+export const previousDay = (text: string): string => {
+  const [year, month, day] = text.split("-").map(Number);
+  const date = new Date(year, month - 1, day - 1);
+  return `${pad(date.getFullYear(), 4)}-${pad(date.getMonth() + 1, 2)}-${pad(date.getDate(), 2)}`;
+};
+
 /** `ГГГГ-ММ-ДД` в `ДД.ММ.ГГГГ`. */
 export const formatDate = (text: string): string => {
   const [year, month, day] = text.split("-");

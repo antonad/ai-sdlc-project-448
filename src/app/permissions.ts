@@ -1,4 +1,5 @@
 import type { Config, Subject } from "../domain/model";
+import { isValidDate, previousDay } from "./dates";
 
 const sameSubject = (left: Subject, right: Subject): boolean =>
   left.type === right.type && left.id === right.id;
@@ -65,6 +66,49 @@ export const addPermission = (
         ...(endsOn === undefined ? {} : { endsOn }),
       },
     ],
+  };
+};
+
+/** Итог отзыва с даты: `revoked` — срок сокращён, остальное — причина отказа. */
+export type RevokeFromResult =
+  | "revoked"
+  | "invalid-date"
+  | "unknown-permission"
+  | "not-after-start"
+  | "already-ended";
+
+/**
+ * Отзывает разрешение с даты `date` (`ГГГГ-ММ-ДД`): дата — первый день без доступа, поэтому
+ * окончание становится предыдущим днём. Меняет ровно одно разрешение.
+ */
+export const revokePermissionFrom = (
+  config: Config,
+  permissionId: string,
+  date: string,
+): { config: Config; result: RevokeFromResult } => {
+  const refuse = (result: RevokeFromResult) => ({ config, result });
+  if (!isValidDate(date)) {
+    return refuse("invalid-date");
+  }
+  const target = config.permissions.find(({ id }) => id === permissionId);
+  if (!target) {
+    return refuse("unknown-permission");
+  }
+  const endsOn = previousDay(date);
+  if (target.startsOn !== undefined && endsOn < target.startsOn) {
+    return refuse("not-after-start");
+  }
+  if (target.endsOn !== undefined && target.endsOn <= endsOn) {
+    return refuse("already-ended");
+  }
+  return {
+    config: {
+      ...config,
+      permissions: config.permissions.map((permission) =>
+        permission.id === permissionId ? { ...permission, endsOn } : permission,
+      ),
+    },
+    result: "revoked",
   };
 };
 

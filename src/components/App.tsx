@@ -22,8 +22,15 @@ const describeInactive = (item: InactivePermission, config: Config): string => {
 };
 
 export const App = () => {
-  const { config, checkAccess, grantPermission, revokePermission, exportJson, importJson } =
-    useSimulator();
+  const {
+    config,
+    checkAccess,
+    grantPermission,
+    revokePermission,
+    revokePermissionFrom,
+    exportJson,
+    importJson,
+  } = useSimulator();
   const [groupId, setGroupId] = useState("");
   const [userId, setUserId] = useState("");
   const [serviceId, setServiceId] = useState("");
@@ -102,7 +109,12 @@ export const App = () => {
             </List>
           )}
         </Paper>
-        <PermissionsPanel config={config} onGrant={grantPermission} onRevoke={revokePermission} />
+        <PermissionsPanel
+          config={config}
+          onGrant={grantPermission}
+          onRevoke={revokePermission}
+          onRevokeFrom={revokePermissionFrom}
+        />
         <ConfigTransfer exportJson={exportJson} onImport={importJson} />
       </Stack>
     </Container>
