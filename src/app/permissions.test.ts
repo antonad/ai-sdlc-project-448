@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { calculateAccess } from "../domain/access";
 import {
   addPermission,
@@ -515,6 +515,7 @@ describe("перенос отзывов при импорте", () => {
     const variants = [
       { serviceId: "mail" },
       { subject: { type: "user" as const, id: "boris" } },
+      { subject: { type: "group" as const, id: "anna" } },
       { startsAt: "2026-11-21T09:00Z" },
       { expiresAt: "2026-12-04T18:00Z" },
     ];
