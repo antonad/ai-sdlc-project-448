@@ -1,10 +1,11 @@
-import { Button, Group, NativeSelect, Paper, Stack, Text, Title } from "@mantine/core";
+import { Button, Group, NativeSelect, Paper, Stack, Text, TextInput, Title } from "@mantine/core";
 import { useState } from "react";
-import type { Config, GrantResult, Permission, Subject } from "../app";
+import { formatInterval } from "../app";
+import type { Config, GrantResult, Interval, Permission, Subject } from "../app";
 
 type Props = {
   config: Config;
-  onGrant: (subject: Subject, serviceId: string) => GrantResult;
+  onGrant: (subject: Subject, serviceId: string, interval?: Interval) => GrantResult;
   onRevoke: (permissionId: string) => void;
 };
 
@@ -26,9 +27,17 @@ const toSubject = (value: string): Subject | null => {
   return (type === "user" || type === "group") && id ? { type, id } : null;
 };
 
+const MESSAGES: Record<GrantResult, string> = {
+  granted: "Разрешение выдано",
+  exists: "Это разрешение уже выдано",
+  "invalid-interval": "Дата окончания раньше даты начала",
+};
+
 export const PermissionsPanel = ({ config, onGrant, onRevoke }: Props) => {
   const [subjectValue, setSubjectValue] = useState("");
   const [serviceId, setServiceId] = useState("");
+  const [startsOn, setStartsOn] = useState("");
+  const [endsOn, setEndsOn] = useState("");
   const [message, setMessage] = useState("");
 
   const subject = toSubject(subjectValue);
@@ -37,9 +46,8 @@ export const PermissionsPanel = ({ config, onGrant, onRevoke }: Props) => {
     if (!subject || !serviceId) {
       return;
     }
-    setMessage(
-      onGrant(subject, serviceId) === "exists" ? "Это разрешение уже выдано" : "Разрешение выдано",
-    );
+    const result = onGrant(subject, serviceId, { startsOn, endsOn });
+    setMessage(MESSAGES[result]);
   };
 
   return (
@@ -54,7 +62,13 @@ export const PermissionsPanel = ({ config, onGrant, onRevoke }: Props) => {
             justify="space-between"
             data-testid={`permission-item-${permission.id}`}
           >
-            <Text>{describePermission(permission, config)}</Text>
+            <Text>
+              {describePermission(permission, config)}
+              {", "}
+              <span data-testid={`permission-interval-${permission.id}`}>
+                {formatInterval(permission)}
+              </span>
+            </Text>
             <Button
               variant="default"
               size="xs"
@@ -89,6 +103,20 @@ export const PermissionsPanel = ({ config, onGrant, onRevoke }: Props) => {
               { value: "", label: "Не выбран" },
               ...config.services.map((service) => ({ value: service.id, label: service.name })),
             ]}
+          />
+          <TextInput
+            type="date"
+            label="Действует с"
+            data-testid="permission-starts-on"
+            value={startsOn}
+            onChange={(event) => setStartsOn(event.currentTarget.value)}
+          />
+          <TextInput
+            type="date"
+            label="Действует по"
+            data-testid="permission-ends-on"
+            value={endsOn}
+            onChange={(event) => setEndsOn(event.currentTarget.value)}
           />
           <Button data-testid="permission-add" disabled={!subject || !serviceId} onClick={grant}>
             Выдать

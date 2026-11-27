@@ -100,6 +100,107 @@ describe("отзыв разрешения", () => {
     expect(result).toEqual({
       granted: true,
       sources: [{ kind: "group", permissionId: "p2", groupId: "accounting" }],
+      inactive: [],
     });
+  });
+});
+
+describe("добавление разрешения со сроком", () => {
+  const vera = { type: "user", id: "vera" } as const;
+  const lastId = (config: typeof seedConfig) => config.permissions.at(-1);
+
+  it("выдаёт разрешение с интервалом и записывает обе границы", () => {
+    const next = addPermission(seedConfig, vera, "ledger", {
+      startsOn: "2026-12-01",
+      endsOn: "2026-12-14",
+    });
+
+    expect(next.permissions).toHaveLength(seedConfig.permissions.length + 1);
+    expect(lastId(next)).toMatchObject({
+      subject: vera,
+      serviceId: "ledger",
+      startsOn: "2026-12-01",
+      endsOn: "2026-12-14",
+    });
+  });
+
+  it("выдаёт разрешение с одной границей без второго поля", () => {
+    const onlyStart = lastId(addPermission(seedConfig, vera, "ledger", { startsOn: "2026-12-01" }));
+    const onlyEnd = lastId(addPermission(seedConfig, vera, "ledger", { endsOn: "2026-12-14" }));
+
+    expect(onlyStart).not.toHaveProperty("endsOn");
+    expect(onlyStart).toHaveProperty("startsOn", "2026-12-01");
+    expect(onlyEnd).not.toHaveProperty("startsOn");
+    expect(onlyEnd).toHaveProperty("endsOn", "2026-12-14");
+  });
+
+  it("постоянное разрешение не получает полей срока", () => {
+    const permanent = lastId(addPermission(seedConfig, vera, "ledger"));
+
+    expect(permanent).not.toHaveProperty("startsOn");
+    expect(permanent).not.toHaveProperty("endsOn");
+  });
+
+  it("повторная выдача с теми же границами возвращает ту же конфигурацию", () => {
+    const interval = { startsOn: "2026-12-01", endsOn: "2026-12-14" };
+    const once = addPermission(seedConfig, vera, "ledger", interval);
+
+    expect(addPermission(once, vera, "ledger", interval)).toBe(once);
+  });
+
+  it("другой интервал на тот же сервис создаёт отдельную запись", () => {
+    const once = addPermission(seedConfig, vera, "ledger", {
+      startsOn: "2026-12-01",
+      endsOn: "2026-12-14",
+    });
+    const twice = addPermission(once, vera, "ledger", {
+      startsOn: "2026-12-10",
+      endsOn: "2026-12-20",
+    });
+
+    expect(twice.permissions).toHaveLength(once.permissions.length + 1);
+  });
+
+  it("постоянное и временное разрешения сосуществуют в любом порядке", () => {
+    const interval = { startsOn: "2026-12-01", endsOn: "2026-12-14" };
+    const permanentFirst = addPermission(
+      addPermission(seedConfig, vera, "ledger"),
+      vera,
+      "ledger",
+      interval,
+    );
+    const temporaryFirst = addPermission(
+      addPermission(seedConfig, vera, "ledger", interval),
+      vera,
+      "ledger",
+    );
+
+    expect(permanentFirst.permissions).toHaveLength(seedConfig.permissions.length + 2);
+    expect(temporaryFirst.permissions).toHaveLength(seedConfig.permissions.length + 2);
+  });
+
+  it("пустые строки и пробелы в границах значат «не задано»", () => {
+    const blank = addPermission(seedConfig, vera, "ledger", { startsOn: "", endsOn: "  " });
+
+    expect(lastId(blank)).not.toHaveProperty("startsOn");
+    expect(lastId(blank)).not.toHaveProperty("endsOn");
+    // Дубль с постоянным разрешением определяется по нормализованным границам.
+    expect(addPermission(blank, vera, "ledger")).toBe(blank);
+    expect(addPermission(blank, vera, "ledger", { startsOn: "", endsOn: "" })).toBe(blank);
+  });
+
+  it("не мутирует исходную конфигурацию", () => {
+    const before = structuredClone(seedConfig);
+
+    addPermission(seedConfig, vera, "ledger", { startsOn: "2026-12-01", endsOn: "2026-12-14" });
+
+    expect(seedConfig).toEqual(before);
+  });
+
+  it("удаление разрешения со сроком снимает ровно эту запись", () => {
+    const withTerm = addPermission(seedConfig, vera, "ledger", { endsOn: "2026-12-14" });
+    const id = lastId(withTerm)?.id ?? "";
+
+    expect(removePermission(withTerm, id)).toEqual(seedConfig);
   });
 });

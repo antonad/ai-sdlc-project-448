@@ -1,18 +1,22 @@
 import type { Config, Group, Permission, Service, User } from "../domain/model";
+import { intervalError, isValidDate } from "./dates";
 
 // Формат файла конфигурации (JSON, одинаковый для экспорта, импорта и хранения в браузере):
 //   {
-//     "version": 1,                                   целое число
+//     "version": 2,                                   целое число
 //     "users": [{ "id", "name", "groupIds": [groupId] }],
 //     "groups": [{ "id", "name" }],
 //     "services": [{ "id", "name" }],
-//     "permissions": [{ "id", "subject": { "type": "user" | "group", "id" }, "serviceId" }]
+//     "permissions": [{ "id", "subject": { "type": "user" | "group", "id" }, "serviceId",
+//                       "startsOn"?: "ГГГГ-ММ-ДД", "endsOn"?: "ГГГГ-ММ-ДД" }]
 //   }
 // Идентификаторы внутри списка уникальны. Разрешения и участие в группах ссылаются на
 // существующие записи, иначе файл отвергается целиком. Неизвестные поля игнорируются: новые
 // поля добавляются как необязательные, версия растёт только при несовместимой правке.
+// Версия 2 добавила срок разрешения (`startsOn`, `endsOn`, обе границы включительные, любая
+// может отсутствовать). Файлы версии 1 принимаются: все их разрешения постоянные.
 
-export const CONFIG_VERSION = 1;
+export const CONFIG_VERSION = 2;
 
 export type ParseResult = { ok: true; config: Config } | { ok: false; errors: string[] };
 
@@ -86,6 +90,24 @@ const readUser = (item: Json, where: string, errors: string[]): User => {
   };
 };
 
+/** Необязательная дата: поля нет, значит граница не задана; иначе строка `ГГГГ-ММ-ДД` с реальной датой. */
+const readOptionalDate = (
+  item: Json,
+  field: "startsOn" | "endsOn",
+  where: string,
+  errors: string[],
+): string | undefined => {
+  if (!(field in item)) {
+    return undefined;
+  }
+  const value = item[field];
+  if (typeof value !== "string" || !isValidDate(value)) {
+    errors.push(`${where}.${field}: нужна реальная дата в формате ГГГГ-ММ-ДД`);
+    return undefined;
+  }
+  return value;
+};
+
 const readPermission = (item: Json, where: string, errors: string[]): Permission | null => {
   const { subject } = item;
   if (!isObject(subject)) {
@@ -96,10 +118,22 @@ const readPermission = (item: Json, where: string, errors: string[]): Permission
     errors.push(`${where}: тип субъекта должен быть user или group`);
     return null;
   }
+  // Версия файла не влияет на чтение: поле срока, которого нет, в результате не появляется.
+  const startsOn = readOptionalDate(item, "startsOn", where, errors);
+  const endsOn = readOptionalDate(item, "endsOn", where, errors);
+  // Пару сверяем, только если обе даты сами валидны, чтобы одна опечатка не давала вторую ошибку.
+  if (startsOn !== undefined && endsOn !== undefined) {
+    const pairError = intervalError(startsOn, endsOn);
+    if (pairError) {
+      errors.push(`${where}: ${pairError.charAt(0).toLowerCase()}${pairError.slice(1)}`);
+    }
+  }
   return {
     id: readText(item, "id", where, errors),
     subject: { type: subject.type, id: readText(subject, "id", `${where}.subject`, errors) },
     serviceId: readText(item, "serviceId", where, errors),
+    ...(startsOn === undefined ? {} : { startsOn }),
+    ...(endsOn === undefined ? {} : { endsOn }),
   };
 };
 

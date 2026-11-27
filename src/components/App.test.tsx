@@ -1,9 +1,10 @@
 import { MantineProvider } from "@mantine/core";
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Config } from "../app";
 import { exportConfig } from "../app/config-file";
+import { seedConfig } from "../app/seed";
 import { STORAGE_KEY } from "../app/storage";
 import { App } from "./App";
 
@@ -158,5 +159,121 @@ describe("фильтр сотрудников по группе", () => {
     expect(userNames()).toEqual(["Не выбран", "Двойной"]);
     await events.selectOptions(screen.getByTestId("group-select"), "Вторая");
     expect(userNames()).toEqual(["Не выбран", "Двойной"]);
+  });
+});
+
+describe("проверка на дату: разрешение «Северной»", () => {
+  const seed = (extra: Config["permissions"]): string => {
+    const base = JSON.parse(exportConfig(seedConfig));
+    base.permissions.push(...extra);
+    return JSON.stringify(base);
+  };
+  const contractor = {
+    id: "s1",
+    subject: { type: "user", id: "vera" },
+    serviceId: "ledger",
+    startsOn: "2026-12-01",
+    endsOn: "2026-12-14",
+  } as const;
+
+  const setDate = (value: string) =>
+    fireEvent.change(screen.getByTestId("access-date"), { target: { value } });
+
+  const prepare = async (extra: Config["permissions"] = [contractor]) => {
+    localStorage.setItem(STORAGE_KEY, seed(extra));
+    renderApp();
+    await pick("Вера Лисицына", "Учёт");
+  };
+
+  afterEach(() => vi.useRealTimers());
+
+  it("показывает доступ в первый и последний день договора", async () => {
+    await prepare();
+
+    setDate("2026-12-01");
+    expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
+    setDate("2026-12-14");
+    expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
+    expect(screen.getByTestId("access-sources")).toHaveTextContent("Прямое разрешение");
+  });
+
+  it("после окончания показывает отказ с причиной и датой", async () => {
+    await prepare();
+
+    setDate("2026-12-15");
+
+    expect(screen.getByTestId("access-result")).toHaveTextContent("Доступа нет");
+    expect(screen.getByTestId("access-inactive")).toHaveTextContent(
+      "Прямое разрешение: закончилось 14.12.2026",
+    );
+  });
+
+  it("до начала показывает причину «ещё не началось»", async () => {
+    await prepare();
+
+    setDate("2026-11-30");
+
+    expect(screen.getByTestId("access-result")).toHaveTextContent("Доступа нет");
+    expect(screen.getByTestId("access-inactive")).toHaveTextContent(
+      "Прямое разрешение: ещё не началось, с 01.12.2026",
+    );
+  });
+
+  it("называет группу в причине для группового разрешения", async () => {
+    await prepare([{ ...contractor, subject: { type: "group", id: "development" } }]);
+
+    setDate("2026-12-15");
+
+    expect(screen.getByTestId("access-inactive")).toHaveTextContent(
+      "Группа «Разработка»: закончилось 14.12.2026",
+    );
+  });
+
+  it("при наличии доступа не показывает недействующие разрешения", async () => {
+    await prepare([
+      contractor,
+      { id: "s2", subject: { type: "user", id: "vera" }, serviceId: "ledger" },
+    ]);
+
+    setDate("2026-12-15");
+
+    expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
+    expect(screen.queryByTestId("access-inactive")).not.toBeInTheDocument();
+  });
+
+  it("с пустой датой считает на сегодня (часы подменены)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 11, 20, 10, 0));
+    await prepare();
+
+    expect(screen.getByTestId("access-date")).toHaveValue("");
+    expect(screen.getByTestId("access-result")).toHaveTextContent("Доступа нет");
+    expect(screen.getByTestId("access-inactive")).toHaveTextContent("закончилось 14.12.2026");
+
+    setDate("2026-12-10");
+    expect(screen.getByTestId("access-result")).toHaveTextContent("Доступ есть");
+
+    setDate("");
+    expect(screen.getByTestId("access-result")).toHaveTextContent("Доступа нет");
+  });
+
+  it("смена даты не меняет сохранённую конфигурацию", async () => {
+    await prepare();
+    const before = localStorage.getItem(STORAGE_KEY);
+
+    setDate("2026-12-15");
+    setDate("2026-12-01");
+
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(before);
+  });
+
+  it("не запоминает дату после перезагрузки", async () => {
+    await prepare();
+    setDate("2026-12-15");
+    cleanup();
+
+    renderApp();
+
+    expect(screen.getByTestId("access-date")).toHaveValue("");
   });
 });

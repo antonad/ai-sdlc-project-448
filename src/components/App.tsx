@@ -1,7 +1,7 @@
-import { Container, List, NativeSelect, Paper, Stack, Text, Title } from "@mantine/core";
+import { Container, List, NativeSelect, Paper, Stack, Text, TextInput, Title } from "@mantine/core";
 import { useState } from "react";
-import { useSimulator, usersInGroup } from "../app";
-import type { AccessSource, Config } from "../app";
+import { formatDate, useSimulator, usersInGroup } from "../app";
+import type { AccessSource, Config, InactivePermission } from "../app";
 import { ConfigTransfer } from "./ConfigTransfer";
 import { PermissionsPanel } from "./PermissionsPanel";
 
@@ -13,14 +13,24 @@ const describeSource = (source: AccessSource, config: Config): string => {
   return `Группа «${group?.name ?? source.groupId}»`;
 };
 
+const describeInactive = (item: InactivePermission, config: Config): string => {
+  const reason =
+    item.reason === "expired"
+      ? `закончилось ${formatDate(item.date)}`
+      : `ещё не началось, с ${formatDate(item.date)}`;
+  return `${describeSource(item, config)}: ${reason}`;
+};
+
 export const App = () => {
   const { config, checkAccess, grantPermission, revokePermission, exportJson, importJson } =
     useSimulator();
   const [groupId, setGroupId] = useState("");
   const [userId, setUserId] = useState("");
   const [serviceId, setServiceId] = useState("");
+  // Дата проверки живёт только в компоненте: не сохраняется и не попадает в конфигурацию.
+  const [onDate, setOnDate] = useState("");
 
-  const result = userId && serviceId ? checkAccess(userId, serviceId) : null;
+  const result = userId && serviceId ? checkAccess(userId, serviceId, onDate) : null;
 
   return (
     <Container size="sm" py="xl">
@@ -62,6 +72,13 @@ export const App = () => {
             ...config.services.map((service) => ({ value: service.id, label: service.name })),
           ]}
         />
+        <TextInput
+          type="date"
+          label="На дату"
+          data-testid="access-date"
+          value={onDate}
+          onChange={(event) => setOnDate(event.currentTarget.value)}
+        />
         <Paper withBorder p="md">
           <Text data-testid="access-result" fw={600}>
             {result === null
@@ -74,6 +91,13 @@ export const App = () => {
             <List data-testid="access-sources" mt="sm">
               {result.sources.map((source) => (
                 <List.Item key={source.permissionId}>{describeSource(source, config)}</List.Item>
+              ))}
+            </List>
+          )}
+          {result && !result.granted && result.inactive.length > 0 && (
+            <List data-testid="access-inactive" mt="sm">
+              {result.inactive.map((item) => (
+                <List.Item key={item.permissionId}>{describeInactive(item, config)}</List.Item>
               ))}
             </List>
           )}

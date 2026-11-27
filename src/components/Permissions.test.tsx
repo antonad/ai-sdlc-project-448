@@ -1,5 +1,5 @@
 import { MantineProvider } from "@mantine/core";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { exportConfig } from "../app/config-file";
@@ -177,5 +177,98 @@ describe("экспорт конфигурации", () => {
       "download",
       "access-policy-config.json",
     );
+  });
+});
+
+describe("разрешения со сроком", () => {
+  const grant = async (
+    starts: string,
+    ends: string,
+    subject = "Вера Лисицына",
+    service = "Учёт",
+  ) => {
+    const events = userEvent.setup();
+    await events.selectOptions(screen.getByTestId("permission-subject-select"), subject);
+    await events.selectOptions(screen.getByTestId("permission-service-select"), service);
+    fireEvent.change(screen.getByTestId("permission-starts-on"), { target: { value: starts } });
+    fireEvent.change(screen.getByTestId("permission-ends-on"), { target: { value: ends } });
+    await events.click(screen.getByTestId("permission-add"));
+  };
+
+  const rows = () => screen.getAllByTestId(/^permission-item-/);
+
+  it("пишет «бессрочно» у постоянного разрешения", () => {
+    renderApp();
+
+    expect(screen.getByTestId("permission-interval-p1")).toHaveTextContent("бессрочно");
+  });
+
+  it("выдаёт разрешение с интервалом и показывает срок в строке списка", async () => {
+    renderApp();
+    await grant("2026-12-01", "2026-12-14");
+
+    expect(screen.getByTestId("permission-message")).toHaveTextContent("Разрешение выдано");
+    expect(rows()).toHaveLength(seedConfig.permissions.length + 1);
+    expect(screen.getByTestId("permission-interval-p6")).toHaveTextContent(
+      "с 01.12.2026 по 14.12.2026",
+    );
+  });
+
+  it("показывает срок с одной границей", async () => {
+    renderApp();
+    await grant("2026-12-01", "");
+    await grant("", "2026-12-14", "Вера Лисицына", "Почта");
+
+    expect(screen.getByTestId("permission-interval-p6")).toHaveTextContent("с 01.12.2026");
+    expect(screen.getByTestId("permission-interval-p6")).not.toHaveTextContent("по");
+    expect(screen.getByTestId("permission-interval-p7")).toHaveTextContent("по 14.12.2026");
+  });
+
+  it("выдаёт интервал в один день", async () => {
+    renderApp();
+    await grant("2026-12-10", "2026-12-10");
+
+    expect(screen.getByTestId("permission-message")).toHaveTextContent("Разрешение выдано");
+    expect(screen.getByTestId("permission-interval-p6")).toHaveTextContent(
+      "с 10.12.2026 по 10.12.2026",
+    );
+  });
+
+  it("отвергает окончание раньше начала: список и localStorage не меняются", async () => {
+    renderApp();
+    await grant("2026-12-14", "2026-12-01");
+
+    expect(screen.getByTestId("permission-message")).toHaveTextContent(
+      "Дата окончания раньше даты начала",
+    );
+    expect(rows()).toHaveLength(seedConfig.permissions.length);
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it("повторная выдача с теми же датами сообщает «уже выдано»", async () => {
+    renderApp();
+    await grant("2026-12-01", "2026-12-14");
+    await grant("2026-12-01", "2026-12-14");
+
+    expect(screen.getByTestId("permission-message")).toHaveTextContent("Это разрешение уже выдано");
+    expect(rows()).toHaveLength(seedConfig.permissions.length + 1);
+  });
+
+  it("другой интервал на тот же сервис даёт новую строку", async () => {
+    renderApp();
+    await grant("2026-12-01", "2026-12-14");
+    await grant("2026-12-10", "2026-12-20");
+
+    expect(screen.getByTestId("permission-message")).toHaveTextContent("Разрешение выдано");
+    expect(rows()).toHaveLength(seedConfig.permissions.length + 2);
+  });
+
+  it("удаляет разрешение со сроком, не трогая остальные", async () => {
+    renderApp();
+    await grant("2026-12-01", "2026-12-14");
+    await userEvent.setup().click(screen.getByTestId("permission-remove-p6"));
+
+    expect(screen.queryByTestId("permission-item-p6")).not.toBeInTheDocument();
+    expect(rows()).toHaveLength(seedConfig.permissions.length);
   });
 });

@@ -3,21 +3,27 @@ import { calculateAccess } from "../domain/access";
 import type { AccessResult } from "../domain/access";
 import type { Config, Subject } from "../domain/model";
 import { exportConfig, parseConfigFile } from "./config-file";
-import { addPermission, removePermission } from "./permissions";
+import { dateToDay, intervalError } from "./dates";
+import { addPermission, normalizeInterval, removePermission } from "./permissions";
+import type { Interval } from "./permissions";
 import { loadConfig, saveConfig } from "./storage";
 
+export { formatDate, formatInterval } from "./dates";
 export { usersInGroup } from "./users";
 
-export type { AccessResult, AccessSource } from "../domain/access";
+export type { AccessResult, AccessSource, InactivePermission } from "../domain/access";
+export type { Interval } from "./permissions";
 export type { Config, Group, Permission, Service, Subject, User } from "../domain/model";
 
-export type GrantResult = "granted" | "exists";
+export type GrantResult = "granted" | "exists" | "invalid-interval";
 export type ImportResult = { ok: true } | { ok: false; errors: string[] };
 
 export type Simulator = {
   config: Config;
-  checkAccess: (userId: string, serviceId: string) => AccessResult;
-  grantPermission: (subject: Subject, serviceId: string) => GrantResult;
+  /** `onDate` — день `ГГГГ-ММ-ДД`; пустая или невалидная строка значит «сегодня». */
+  checkAccess: (userId: string, serviceId: string, onDate?: string) => AccessResult;
+  /** Выдаёт постоянное разрешение или разрешение на интервал. Неверный интервал конфигурацию не меняет. */
+  grantPermission: (subject: Subject, serviceId: string, interval?: Interval) => GrantResult;
   revokePermission: (permissionId: string) => void;
   /** Текст файла экспорта для текущей конфигурации. */
   exportJson: () => string;
@@ -37,10 +43,14 @@ export const useSimulator = (): Simulator => {
 
   return {
     config,
-    checkAccess: (userId, serviceId) =>
-      calculateAccess(config, { userId, serviceId, at: new Date() }),
-    grantPermission: (subject, serviceId) => {
-      const next = addPermission(config, subject, serviceId);
+    checkAccess: (userId, serviceId, onDate) =>
+      calculateAccess(config, { userId, serviceId, at: dateToDay(onDate) }),
+    grantPermission: (subject, serviceId, interval) => {
+      const bounds = normalizeInterval(interval);
+      if (intervalError(bounds.startsOn, bounds.endsOn)) {
+        return "invalid-interval";
+      }
+      const next = addPermission(config, subject, serviceId, bounds);
       if (next === config) {
         return "exists";
       }

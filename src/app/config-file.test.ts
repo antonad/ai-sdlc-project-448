@@ -169,3 +169,119 @@ describe("проверка файла импорта", () => {
     expect(errorsOf(result)).toHaveLength(2);
   });
 });
+
+describe("срок разрешения в файле", () => {
+  const withTerms = {
+    ...seedConfig,
+    permissions: [
+      { ...seedConfig.permissions[0], startsOn: "2026-12-01", endsOn: "2026-12-14" },
+      { ...seedConfig.permissions[1], startsOn: "2026-12-01" },
+      { ...seedConfig.permissions[2], endsOn: "2026-12-14" },
+      ...seedConfig.permissions.slice(3),
+    ],
+  };
+
+  it("пишет в экспорт версию 2", () => {
+    expect(CONFIG_VERSION).toBe(2);
+    expect(JSON.parse(exportConfig(seedConfig)).version).toBe(2);
+  });
+
+  it("возвращает постоянное, интервальное и одностороннее разрешения после круга", () => {
+    const result = parseConfigFile(exportConfig(withTerms));
+    const permissions = result.ok ? result.config.permissions : [];
+
+    expect(result).toEqual({ ok: true, config: withTerms });
+    expect(permissions[0]).toMatchObject({ startsOn: "2026-12-01", endsOn: "2026-12-14" });
+    expect(permissions[1]).not.toHaveProperty("endsOn");
+    expect(permissions[2]).not.toHaveProperty("startsOn");
+    expect(permissions[3]).not.toHaveProperty("startsOn");
+    expect(permissions[3]).not.toHaveProperty("endsOn");
+  });
+
+  it("не пишет в файл поля срока у постоянного разрешения", () => {
+    const file = JSON.parse(exportConfig(seedConfig));
+
+    expect(file.permissions[0]).not.toHaveProperty("startsOn");
+    expect(file.permissions[0]).not.toHaveProperty("endsOn");
+  });
+
+  it("принимает файл версии 1 и оставляет разрешения постоянными", () => {
+    const result = parseWith((file) => (file.version = 1));
+
+    expect(result).toEqual({ ok: true, config: seedConfig });
+  });
+
+  it("отвергает версию 3", () => {
+    expect(errorsOf(parseWith((file) => (file.version = 3)))).toEqual([
+      "Версия формата 3 новее поддерживаемой 2",
+    ]);
+  });
+
+  it("отвергает несуществующую дату окончания с указанием места", () => {
+    const errors = errorsOf(parseWith((file) => (file.permissions[1].endsOn = "2026-02-30")));
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/^permissions\[1\]\.endsOn: /);
+  });
+
+  it("отвергает дату начала в неверном формате с указанием места", () => {
+    const errors = errorsOf(parseWith((file) => (file.permissions[2].startsOn = "14.12.2026")));
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/^permissions\[2\]\.startsOn: /);
+  });
+
+  it("отвергает значение не строкой", () => {
+    const start = errorsOf(parseWith((file) => (file.permissions[0].startsOn = 20261201)));
+    const end = errorsOf(parseWith((file) => (file.permissions[0].endsOn = null)));
+
+    expect(start[0]).toMatch(/^permissions\[0\]\.startsOn: /);
+    expect(end[0]).toMatch(/^permissions\[0\]\.endsOn: /);
+  });
+
+  it("отвергает окончание раньше начала с указанием разрешения", () => {
+    const errors = errorsOf(
+      parseWith((file) => {
+        file.permissions[3].startsOn = "2026-12-14";
+        file.permissions[3].endsOn = "2026-12-01";
+      }),
+    );
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/^permissions\[3\]: /);
+    expect(errors[0]).not.toMatch(/^permissions\[3\]\./);
+  });
+
+  it("при невалидной дате сообщает только ошибку поля, без ошибки пары", () => {
+    const errors = errorsOf(
+      parseWith((file) => {
+        file.permissions[3].startsOn = "2026-13-40";
+        file.permissions[3].endsOn = "2026-12-01";
+      }),
+    );
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/^permissions\[3\]\.startsOn: /);
+  });
+
+  it("принимает равные границы", () => {
+    const result = parseWith((file) => {
+      file.permissions[0].startsOn = "2026-12-10";
+      file.permissions[0].endsOn = "2026-12-10";
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("не смешивает ошибку даты и битую ссылку: ссылки проверяются после исправления формы", () => {
+    const errors = errorsOf(
+      parseWith((file) => {
+        file.permissions[0].endsOn = "2026-02-30";
+        file.permissions[1].serviceId = "vault";
+      }),
+    );
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/^permissions\[0\]\.endsOn: /);
+  });
+});

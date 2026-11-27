@@ -40,6 +40,21 @@ describe("хранение конфигурации в браузере", () => 
     expect(storage.getItem(STORAGE_KEY)).toBe(exportConfig(seedConfig));
   });
 
+  it("читает сохранённую копию версии 1, а не учебные данные", () => {
+    const changed = { ...seedConfig, permissions: seedConfig.permissions.slice(1) };
+    storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, ...changed }));
+
+    expect(loadConfig(storage)).toEqual(changed);
+  });
+
+  it("после сохранения копия содержит версию 2", () => {
+    storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, ...seedConfig }));
+
+    saveConfig(storage, loadConfig(storage));
+
+    expect(JSON.parse(storage.getItem(STORAGE_KEY) ?? "{}").version).toBe(2);
+  });
+
   it("возвращается к учебным данным, если сохранённое повреждено", () => {
     storage.setItem(STORAGE_KEY, "{oops");
 
