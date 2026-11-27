@@ -349,6 +349,7 @@ describe("проверка на момент: разрешение «Север�
     });
     const file = new File([JSON.stringify(base)], "config.json", { type: "application/json" });
     await userEvent.setup().upload(screen.getByTestId("import-input"), file);
+    await userEvent.setup().click(await screen.findByTestId("import-confirm"));
 
     expect(await screen.findByTestId("import-status")).toHaveTextContent("Конфигурация заменена");
     expect(screen.getByTestId("permission-interval-s1")).toHaveTextContent(
@@ -399,6 +400,7 @@ describe("проверка на момент: разрешение «Север�
     const legacy = { version: 2, ...seedConfig };
     const file = new File([JSON.stringify(legacy)], "config.json", { type: "application/json" });
     await userEvent.setup().upload(screen.getByTestId("import-input"), file);
+    await userEvent.setup().click(await screen.findByTestId("import-confirm"));
 
     expect(await screen.findByTestId("import-status")).toHaveTextContent("Конфигурация заменена");
     await pick("Борис Каримов", "Репозиторий");
@@ -623,6 +625,7 @@ describe("отзыв разрешения с момента: договор «С
     const legacy = { version: 2, ...seedConfig };
     const file = new File([JSON.stringify(legacy)], "config.json", { type: "application/json" });
     await userEvent.setup().upload(screen.getByTestId("import-input"), file);
+    await userEvent.setup().click(await screen.findByTestId("import-confirm"));
 
     expect(await screen.findByTestId("import-status")).toHaveTextContent("Конфигурация заменена");
     expect(screen.queryAllByTestId(/^permission-revoke-/)).toHaveLength(0);

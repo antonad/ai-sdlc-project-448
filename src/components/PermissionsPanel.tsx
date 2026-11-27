@@ -1,7 +1,8 @@
 import { Button, Group, NativeSelect, Paper, Stack, Text, TextInput, Title } from "@mantine/core";
 import { useState } from "react";
 import { formatInterval, formatMoment, nowMoment } from "../app";
-import type { Config, GrantResult, Interval, Permission, RevokeFromResult, Subject } from "../app";
+import type { Config, GrantResult, Interval, RevokeFromResult, Subject } from "../app";
+import { describePermission } from "./permission-text";
 
 type Props = {
   config: Config;
@@ -10,19 +11,6 @@ type Props = {
   onRevokeFrom: (permissionId: string, moment: string) => RevokeFromResult;
   /** Значение `evaluation-time`: момент отзыва, если поле отзыва пусто. */
   evaluationMoment: string;
-};
-
-const subjectName = (subject: Subject, config: Config): string => {
-  if (subject.type === "user") {
-    return config.users.find(({ id }) => id === subject.id)?.name ?? subject.id;
-  }
-  const name = config.groups.find(({ id }) => id === subject.id)?.name ?? subject.id;
-  return `Группа «${name}»`;
-};
-
-const describePermission = (permission: Permission, config: Config): string => {
-  const service = config.services.find(({ id }) => id === permission.serviceId);
-  return `${subjectName(permission.subject, config)}: ${service?.name ?? permission.serviceId}`;
 };
 
 const toSubject = (value: string): Subject | null => {

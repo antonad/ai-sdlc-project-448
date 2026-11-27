@@ -32,7 +32,10 @@ export const App = () => {
     revokePermission,
     revokePermissionFrom,
     exportJson,
-    importJson,
+    startImport,
+    importPreview,
+    confirmImport,
+    cancelImport,
   } = useSimulator();
   const [groupId, setGroupId] = useState("");
   const [userId, setUserId] = useState("");
@@ -119,7 +122,14 @@ export const App = () => {
           onRevokeFrom={revokePermissionFrom}
           evaluationMoment={atMoment}
         />
-        <ConfigTransfer exportJson={exportJson} onImport={importJson} />
+        <ConfigTransfer
+          config={config}
+          exportJson={exportJson}
+          onStartImport={startImport}
+          preview={importPreview}
+          onConfirm={confirmImport}
+          onCancel={cancelImport}
+        />
       </Stack>
     </Container>
   );

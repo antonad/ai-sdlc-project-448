@@ -4,9 +4,10 @@ import type { AccessResult } from "../domain/access";
 import type { Config, Subject } from "../domain/model";
 import { exportConfig, parseConfigFile } from "./config-file";
 import { intervalError, isValidMoment, isValidUtcMoment, localToUtc, momentToDate } from "./dates";
+import { buildImportPreview } from "./import-preview";
+import type { ImportPreview } from "./import-preview";
 import {
   addPermission,
-  carryOverRevocations,
   normalizeInterval,
   removePermission,
   revokePermissionFrom,
@@ -19,6 +20,7 @@ export { usersInGroup } from "./users";
 
 export type { AccessResult, AccessSource, InactivePermission } from "../domain/access";
 export type { Interval, RevokeFromResult } from "./permissions";
+export type { EntityChange, ImportPreview } from "./import-preview";
 export type { Config, Group, Permission, Service, Subject, User } from "../domain/model";
 
 export type GrantResult = "granted" | "exists" | "invalid-interval";
@@ -40,16 +42,27 @@ export type Simulator = {
   /** Текст файла экспорта для текущей конфигурации. */
   exportJson: () => string;
   /**
-   * Проверяет файл целиком. При ошибке конфигурация не меняется, при успехе заменяется и
-   * сохраняется; отзывы текущей конфигурации переносятся на те же разрешения из файла.
+   * Проверяет файл целиком и открывает предпросмотр. Ни при ошибке, ни при успехе конфигурация и
+   * хранилище не меняются; новый файл заменяет прежний предпросмотр, файл с ошибкой его закрывает.
    */
-  importJson: (text: string) => ImportResult;
+  startImport: (text: string) => ImportResult;
+  /** Различия между текущей конфигурацией и результатом подтверждения; `null`, если файл не открыт. */
+  importPreview: ImportPreview | null;
+  /**
+   * Применяет открытый файл: конфигурация заменяется и сохраняется, отзывы текущей конфигурации
+   * переносятся на те же разрешения из файла. Без открытого предпросмотра ничего не делает.
+   */
+  confirmImport: () => void;
+  /** Закрывает предпросмотр, ничего не меняя. */
+  cancelImport: () => void;
 };
 
 // Слой приложения единственный отдаёт компонентам конфигурацию и результат расчёта и единственный
 // обращается к хранилищу браузера. Момент расчёта берётся здесь, модуль расчёта часы не читает.
 export const useSimulator = (): Simulator => {
   const [config, setConfig] = useState<Config>(() => loadConfig(window.localStorage));
+  // Проверенный, но ещё не применённый файл.
+  const [pending, setPending] = useState<Config | null>(null);
 
   const replace = (next: Config): void => {
     setConfig(next);
@@ -94,14 +107,22 @@ export const useSimulator = (): Simulator => {
       return outcome.result;
     },
     exportJson: () => exportConfig(config),
-    importJson: (text) => {
+    startImport: (text) => {
       const result = parseConfigFile(text);
-      if (!result.ok) {
-        return result;
-      }
-      // Отзывы текущей конфигурации не теряются, даже если файл выгружен до отзыва.
-      replace(carryOverRevocations(config, result.config));
-      return { ok: true };
+      // Файл держится только в памяти страницы: после перезагрузки предпросмотра нет.
+      setPending(result.ok ? result.config : null);
+      return result.ok ? { ok: true } : result;
     },
+    importPreview: pending === null ? null : buildImportPreview(config, pending),
+    confirmImport: () => {
+      if (pending === null) {
+        return;
+      }
+      // Предпросмотр и подтверждение считают от одной текущей конфигурации, поэтому отзыв,
+      // сделанный при открытом предпросмотре, тоже сохранится.
+      replace(buildImportPreview(config, pending).result);
+      setPending(null);
+    },
+    cancelImport: () => setPending(null),
   };
 };

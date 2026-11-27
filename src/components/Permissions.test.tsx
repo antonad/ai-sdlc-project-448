@@ -20,9 +20,16 @@ const pickAccess = async (user: string, service: string) => {
   await events.selectOptions(screen.getByTestId("service-select"), service);
 };
 
+/** Выбирает файл: открывается предпросмотр или показывается ошибка. */
 const upload = async (text: string) => {
   const file = new File([text], "config.json", { type: "application/json" });
   await userEvent.setup().upload(screen.getByTestId("import-input"), file);
+};
+
+/** Выбирает файл и применяет его отдельным нажатием. */
+const importFile = async (text: string) => {
+  await upload(text);
+  await userEvent.setup().click(await screen.findByTestId("import-confirm"));
 };
 
 describe("редактирование разрешений", () => {
@@ -99,7 +106,7 @@ describe("импорт конфигурации", () => {
 
   it("заменяет конфигурацию целиком и сохраняет её в браузере", async () => {
     renderApp();
-    await upload(exportConfig(imported));
+    await importFile(exportConfig(imported));
     expect(await screen.findByTestId("import-status")).toHaveTextContent("Конфигурация заменена");
 
     const items = screen.getAllByTestId(/^permission-item-/);
@@ -168,10 +175,12 @@ describe("импорт конфигурации", () => {
     renderApp();
     await upload("{oops");
     await screen.findByTestId("import-error");
+    expect(screen.queryByTestId("import-preview")).not.toBeInTheDocument();
     await upload(exportConfig(imported));
 
-    await screen.findByTestId("import-status");
+    await screen.findByTestId("import-preview");
     expect(screen.queryByTestId("import-error")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("import-status")).not.toBeInTheDocument();
   });
 });
 
@@ -432,7 +441,7 @@ describe("отзыв разрешения с момента", () => {
 
   it("импорт файла прежнего формата без revokedAt: кнопок отзыва нет", async () => {
     renderApp();
-    await upload(JSON.stringify({ version: 2, ...seedConfig }));
+    await importFile(JSON.stringify({ version: 2, ...seedConfig }));
 
     expect(await screen.findByTestId("import-status")).toHaveTextContent("Конфигурация заменена");
     expect(screen.queryAllByTestId(/^permission-revoke-/)).toHaveLength(0);
@@ -467,7 +476,7 @@ describe("отзыв и импорт сохранённого файла", () =>
     renderApp();
     const before = await grantAndExport();
     await revokeAt("2026-11-27T12:00");
-    await upload(before);
+    await importFile(before);
 
     expect(await screen.findByTestId("import-status")).toHaveTextContent("Конфигурация заменена");
     await checkAt("2026-11-28T10:00");
@@ -482,7 +491,7 @@ describe("отзыв и импорт сохранённого файла", () =>
   it("тот же файл без отзыва в текущей конфигурации оставляет доступ", async () => {
     renderApp();
     const before = await grantAndExport();
-    await upload(before);
+    await importFile(before);
 
     expect(await screen.findByTestId("import-status")).toHaveTextContent("Конфигурация заменена");
     await checkAt("2026-11-28T10:00");
