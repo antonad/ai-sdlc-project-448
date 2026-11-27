@@ -21,6 +21,8 @@
 | Архитектурные правила | `npm run lint:arch` |
 | Сборка | `npm run build` |
 
+Те же проверки доступны через make: `make test`, `make lint`, `make lint-arch` (их запускает CI), `make setup`, `make dev`.
+
 Перед завершением любой задачи пройти по порядку: `npm run typecheck`, `npm test`, `npm run lint`, `npm run lint:arch`, `npm run build` (тот же список у скила `verify`). Если менялась логика, дополнительно `npm run test:coverage`: пороги покрытия заданы в `vite.config.ts`.
 
 CI (`.github/workflows/ci.yml`) запускает `make setup` (`npm ci` и `npm run build`, куда входит проверка типов), затем `make test`, `make lint`, `make lint-arch`. Покрытие CI не проверяет, поэтому пороги держатся только локальным запуском `npm run test:coverage`.
